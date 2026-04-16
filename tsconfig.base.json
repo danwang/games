@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@games/animation-core": ["packages/animation-core/src/index.ts"],
+      "@games/game-sdk": ["packages/game-sdk/src/index.ts"],
+      "@games/game-registry": ["packages/game-registry/src/index.ts"],
+      "@games/ui": ["packages/ui/src/index.ts"],
+      "@games/splendor": ["packages/games/splendor/src/index.ts"],
+      "@games/splendor/ui": ["packages/games/splendor/src/ui/index.tsx"]
+    }
+  }
+}

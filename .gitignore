@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+*.tsbuildinfo
+
+apps/*/dist/
+packages/*/dist/
+packages/games/*/*/dist/
+
+.vite/
+storybook-static/

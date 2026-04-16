@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/animation-core" },
+    { "path": "./packages/game-sdk" },
+    { "path": "./packages/game-registry" },
+    { "path": "./packages/ui" },
+    { "path": "./packages/games/splendor" },
+    { "path": "./apps/server" },
+    { "path": "./apps/web" }
+  ]
+}

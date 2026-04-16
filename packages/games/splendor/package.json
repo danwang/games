@@ -1,0 +1,27 @@
+{
+  "name": "@games/splendor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "default": "./dist/ui/index.js"
+    }
+  },
+  "dependencies": {
+    "@games/animation-core": "workspace:*",
+    "@games/game-sdk": "workspace:*",
+    "@games/ui": "workspace:*",
+    "react": "^19.2.4"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ./tsconfig.json --pretty false --noEmit"
+  }
+}
