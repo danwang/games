@@ -55,6 +55,7 @@ interface CompiledSegment<TSnapshot, TObject> {
 }
 
 interface CompiledAnimation<TSnapshot, TObject> {
+  readonly finalSnapshot: TSnapshot | null;
   readonly segments: readonly CompiledSegment<TSnapshot, TObject>[];
   readonly totalDurationMs: number;
 }
@@ -309,6 +310,7 @@ const compile = <TSnapshot, TObject>(
   }
 
   return {
+    finalSnapshot: latestCheckpoint(checkpoints, collected.durationMs, fallbackSnapshot),
     segments,
     totalDurationMs: collected.durationMs,
   };
@@ -369,13 +371,9 @@ export const advanceAnimation = <TSnapshot, TObject>(
   const nextSegment = state.compiled.segments[state.segmentIndex + 1];
 
   if (!nextSegment) {
-    const finalSnapshot =
-      state.compiled.segments[state.compiled.segments.length - 1]?.presentedSnapshot ??
-      state.frame.presentedSnapshot;
-
     return {
       compiled: null,
-      frame: createAnimationFrame(finalSnapshot),
+      frame: createAnimationFrame(state.compiled.finalSnapshot),
       segmentIndex: -1,
     };
   }

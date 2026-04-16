@@ -51,7 +51,7 @@ export const GameRoomScreen = ({
     .filter((value) => value !== null)
     .join(' · ');
   const seatSlots = Array.from({ length: seatCount }, (_, index) => room.seats[index] ?? null);
-  const roomLabel = `Room ${room.id.slice(0, 8).toUpperCase()}`;
+  const roomLabel = `Room ${room.id}`;
   const isHost = room.seats[0]?.playerId === playerId;
   const isReadyToStart = room.status === 'waiting' && room.seats.length === seatCount;
   const waitingStatusMessage = isReadyToStart
@@ -68,11 +68,19 @@ export const GameRoomScreen = ({
             <div className="flex flex-col gap-2">
               <SectionLabel>{definition.displayName}</SectionLabel>
               <div className="flex flex-col gap-1 text-sm text-stone-400">
-                <span>{roomLabel}</span>
+                <span className="select-all font-mono uppercase tracking-[0.22em] text-stone-300">
+                  {roomLabel}
+                </span>
                 {configSummary ? <span>{configSummary}</span> : null}
               </div>
             </div>
             <div className="flex flex-col gap-3 sm:items-end">
+              <PillButton
+                onClick={() => void navigator.clipboard.writeText(room.id)}
+                variant="secondary"
+              >
+                Copy code
+              </PillButton>
               {isHost ? (
                 <PillButton
                   disabled={!isReadyToStart}

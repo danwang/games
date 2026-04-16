@@ -25,6 +25,27 @@ const lobbyEmptyState: LobbySnapshot = {
 };
 
 const playerStorageKey = 'games-platform:player';
+const roomPathPattern = /^\/rooms\/([A-Za-z]{1,6})\/?$/;
+
+const getRoomIdFromLocation = (pathname: string = window.location.pathname): RoomId | null => {
+  const match = pathname.match(roomPathPattern);
+
+  if (!match) {
+    return null;
+  }
+
+  const roomId = match[1];
+
+  if (!roomId) {
+    return null;
+  }
+
+  return roomId.toUpperCase();
+};
+
+const getPathForRoom = (roomId: RoomId | null): string => {
+  return roomId ? `/rooms/${roomId}` : '/';
+};
 
 const getServerUrl = (): string => {
   const configuredUrl = import.meta.env.VITE_SERVER_URL?.trim();
@@ -91,7 +112,7 @@ export const App = () => {
   const [isLobbyReady, setIsLobbyReady] = useState(false);
   const [currentRoom, setCurrentRoom] = useState<RoomSnapshot | null>(null);
   const [currentRoomHistory, setCurrentRoomHistory] = useState<readonly ActiveRoomSnapshot[]>([]);
-  const [desiredRoomId, setDesiredRoomId] = useState<RoomId | null>(null);
+  const [desiredRoomId, setDesiredRoomId] = useState<RoomId | null>(() => getRoomIdFromLocation());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -112,6 +133,46 @@ export const App = () => {
   useEffect(() => {
     playerRef.current = player;
   }, [player]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextRoomId = getRoomIdFromLocation();
+      const previousRoomId = desiredRoomIdRef.current;
+
+      if (previousRoomId === nextRoomId) {
+        return;
+      }
+
+      if (previousRoomId && socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(
+          JSON.stringify({
+            type: 'leave-room',
+            roomId: previousRoomId,
+          }),
+        );
+      }
+
+      setDesiredRoomId(nextRoomId);
+      setCurrentRoom(null);
+      setCurrentRoomHistory([]);
+      setErrorMessage(null);
+
+      if (nextRoomId && socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(
+          JSON.stringify({
+            type: 'join-room',
+            roomId: nextRoomId,
+          }),
+        );
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   useEffect(() => {
     if (!player) {
@@ -172,6 +233,7 @@ export const App = () => {
             return;
           case 'room-created':
             setDesiredRoomId(message.roomId);
+            window.history.pushState(null, '', getPathForRoom(message.roomId));
             return;
           case 'room-snapshot':
             setCurrentRoom(message.room);
@@ -253,6 +315,7 @@ export const App = () => {
   const joinRoom = (roomId: RoomId): void => {
     setErrorMessage(null);
     setDesiredRoomId(roomId);
+    window.history.pushState(null, '', getPathForRoom(roomId));
     sendMessage({
       type: 'join-room',
       roomId,
@@ -265,6 +328,7 @@ export const App = () => {
     setDesiredRoomId(null);
     setCurrentRoom(null);
     setCurrentRoomHistory([]);
+    window.history.pushState(null, '', getPathForRoom(null));
 
     if (!roomId) {
       return;
@@ -314,6 +378,14 @@ export const App = () => {
     setPlayer(nextPlayer);
   };
 
+  useEffect(() => {
+    const nextPath = getPathForRoom(desiredRoomId);
+
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState(null, '', nextPath);
+    }
+  }, [desiredRoomId]);
+
   if (!player) {
     return (
       <PageBackdrop>
@@ -340,6 +412,8 @@ export const App = () => {
     );
   }
 
+  const activeRoomId = currentRoom ? currentRoom.id : desiredRoomId;
+
   return (
     <LobbyShell
       connectionState={connectionState}
@@ -359,6 +433,7 @@ export const App = () => {
         <LobbyScreen
           availableGames={availableGames}
           createRoom={createRoom}
+          currentRoomId={activeRoomId}
           isLobbyReady={isLobbyReady}
           joinRoom={joinRoom}
           lobby={lobby}

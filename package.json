@@ -16,6 +16,7 @@
     "typecheck:web": "tsc -p ./apps/web/tsconfig.json --pretty false --noEmit",
     "typecheck:sdk": "tsc -p ./packages/game-sdk/tsconfig.json --pretty false --noEmit",
     "typecheck:registry": "tsc -p ./packages/game-registry/tsconfig.json --pretty false --noEmit",
+    "typecheck:lost-cities": "tsc -p ./packages/games/lost-cities/tsconfig.json --pretty false --noEmit",
     "typecheck:splendor": "tsc -p ./packages/games/splendor/tsconfig.json --pretty false --noEmit"
   },
   "devDependencies": {
@@ -30,6 +31,7 @@
     "react-dom": "^19.2.4",
     "storybook": "^10.3.5",
     "tailwindcss": "^4.2.2",
+    "vitest": "^3.2.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.1.8",

@@ -39,9 +39,30 @@ export interface RoomService {
 
 export const createRoomService = (): RoomService => {
   const rooms = new Map<RoomId, RoomRecord>();
+  const roomCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+  const createRoomId = (): RoomId => {
+    for (let attempt = 0; attempt < 1024; attempt += 1) {
+      let code = '';
+
+      for (let index = 0; index < 6; index += 1) {
+        const randomIndex = Math.floor(Math.random() * roomCodeAlphabet.length);
+        code += roomCodeAlphabet[randomIndex];
+      }
+
+      if (!rooms.has(code)) {
+        return code;
+      }
+    }
+
+    throw new Error('Unable to allocate a unique room id.');
+  };
 
   const createRoom = (input: CreateRoomInput): RoomSnapshot => {
-    const room = createRoomSnapshot(input);
+    const room = createRoomSnapshot({
+      ...input,
+      roomId: createRoomId(),
+    });
 
     rooms.set(room.id, { room });
 

@@ -17,6 +17,7 @@ import { SectionLabel } from './ui/section-label.js';
 export interface LobbyScreenProps {
   readonly lobby: LobbySnapshot;
   readonly createRoom: (gameId: string, config: SerializedValue) => void;
+  readonly currentRoomId?: string | null;
   readonly initialTab?: 'join' | 'create';
   readonly isLobbyReady?: boolean;
   readonly joinRoom: (roomId: string) => void;
@@ -34,6 +35,7 @@ export const LobbyScreen = ({
   availableGames,
   lobby,
   createRoom,
+  currentRoomId = null,
   initialTab = 'join',
   isLobbyReady = true,
   joinRoom,
@@ -118,6 +120,10 @@ export const LobbyScreen = ({
               ) : (
                 lobby.rooms.map((room) => (
                   <Card as="li" key={room.id} tone="panel">
+                    {(() => {
+                      const isCurrentRoom = currentRoomId === room.id;
+
+                      return (
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex flex-col gap-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -129,8 +135,10 @@ export const LobbyScreen = ({
                           </span>
                         </div>
                         <p className="text-sm text-stone-400">
-                          Room {room.id.slice(0, 8).toUpperCase()} • Seats {room.occupiedSeatCount}/
-                          {room.seatCount}
+                          <span className="select-all font-mono uppercase tracking-[0.22em] text-stone-300">
+                            {room.id}
+                          </span>{' '}
+                          • Seats {room.occupiedSeatCount}/{room.seatCount}
                         </p>
                         <p className="text-sm leading-7 text-stone-300">
                           {roomConfigLabel(room.gameId, room.config) || 'Default room settings'}
@@ -143,9 +151,11 @@ export const LobbyScreen = ({
                         onClick={() => joinRoom(room.id)}
                         variant="secondary"
                       >
-                        Join room
+                        {isCurrentRoom ? 'Enter room' : 'Join room'}
                       </PillButton>
                     </div>
+                      );
+                    })()}
                   </Card>
                 ))
               )}

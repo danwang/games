@@ -19,6 +19,10 @@ export interface CreateRoomInput {
   readonly seed?: string;
 }
 
+export interface CreateRoomSnapshotInput extends CreateRoomInput {
+  readonly roomId: RoomId;
+}
+
 export interface JoinRoomInput {
   readonly room: WaitingRoomSnapshot;
   readonly player: PlayerIdentity;
@@ -69,7 +73,7 @@ export const toLobbyRoomSummary = (room: RoomSnapshot): LobbyRoomSummary => ({
   occupiedSeatCount: room.seats.length,
 });
 
-export const createRoomSnapshot = (input: CreateRoomInput): WaitingRoomSnapshot => {
+export const createRoomSnapshot = (input: CreateRoomSnapshotInput): WaitingRoomSnapshot => {
   const definition = getGameDefinition(input.gameId);
 
   if (!definition) {
@@ -84,7 +88,7 @@ export const createRoomSnapshot = (input: CreateRoomInput): WaitingRoomSnapshot 
   }
 
   return {
-    id: randomUUID(),
+    id: input.roomId,
     gameId: definition.id,
     config: definition.serializeConfig(normalizedConfig),
     stateVersion: 0,
