@@ -27,9 +27,19 @@ const lobbyEmptyState: LobbySnapshot = {
 const playerStorageKey = 'games-platform:player';
 
 const getServerUrl = (): string => {
+  const configuredUrl = import.meta.env.VITE_SERVER_URL?.trim();
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
 
-  return `${protocol}://127.0.0.1:3001`;
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return `${protocol}://127.0.0.1:3001`;
+  }
+
+  return `${protocol}://${window.location.host}`;
 };
 
 const createPlayerIdentity = (displayName: string, existingPlayerId?: string): PlayerIdentity => {

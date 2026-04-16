@@ -40,16 +40,51 @@ Install dependencies from the repo root:
 
 Start the server and web app together:
 
-    npm run dev
+    pnpm dev
 
 Then open `http://localhost:5173`.
 
 Notes:
 
-- `npm run dev` starts both `apps/server` and `apps/web`.
-- The client keeps one app-level WebSocket open to `ws://127.0.0.1:3001`.
+- `pnpm dev` starts both `apps/server` and `apps/web`.
+- In local development, the client connects to `ws://127.0.0.1:3001`.
 - The lobby stays subscribed while the user is inside a room.
 - Room data is in-memory only; restarting the server clears all rooms.
+
+## Render Deployment
+
+This repo is now set up to deploy as a single Render web service.
+
+The Node server in `apps/server` serves both:
+
+- the WebSocket / room backend
+- the built frontend assets from `apps/web/dist`
+
+The included [render.yaml](/Users/danwang/workspace/games/render.yaml) defines the service.
+
+Use these commands on Render:
+
+- Build Command:
+
+      pnpm install --frozen-lockfile && pnpm build
+
+- Start Command:
+
+      pnpm --filter @games/platform-server start
+
+The server reads `PORT` automatically and exposes a health check at:
+
+    /healthz
+
+### URL Resolution
+
+The web client resolves its WebSocket URL like this:
+
+- `VITE_SERVER_URL`, if set
+- otherwise `ws://127.0.0.1:3001` for localhost
+- otherwise same-origin host as a fallback
+
+For the single-service Render setup, you usually do not need `VITE_SERVER_URL`, because the browser can connect back to the same host that served the page.
 
 ## Design Rules
 

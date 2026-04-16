@@ -1,4 +1,7 @@
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 
@@ -13,6 +16,8 @@ import {
 import { createRoomService } from './room-service.js';
 
 const port = Number(process.env.PORT ?? '3001');
+const serverRoot = fileURLToPath(new URL('.', import.meta.url));
+const webDistRoot = path.resolve(serverRoot, '../../web/dist');
 const roomService = createRoomService();
 const lobbySubscribers = new Set<WebSocket>();
 const roomSubscribers = new Map<RoomId, Set<WebSocket>>();
@@ -105,8 +110,76 @@ const unsubscribeRoom = (socket: WebSocket): RoomId | null => {
 };
 
 const server = createServer((_request, response) => {
-  response.writeHead(200, { 'content-type': 'application/json' });
-  response.end(JSON.stringify({ ok: true }));
+  const requestUrl = _request.url ?? '/';
+  const pathname = requestUrl.split('?')[0] ?? '/';
+
+  if (pathname === '/healthz') {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  const contentTypeForPath = (filePath: string): string => {
+    const extension = path.extname(filePath);
+
+    switch (extension) {
+      case '.html':
+        return 'text/html; charset=utf-8';
+      case '.js':
+        return 'text/javascript; charset=utf-8';
+      case '.css':
+        return 'text/css; charset=utf-8';
+      case '.json':
+        return 'application/json; charset=utf-8';
+      case '.svg':
+        return 'image/svg+xml';
+      case '.png':
+        return 'image/png';
+      case '.woff2':
+        return 'font/woff2';
+      default:
+        return 'application/octet-stream';
+    }
+  };
+
+  const serveFile = async (relativePath: string, statusCode = 200): Promise<boolean> => {
+    const normalizedPath = relativePath.replace(/^\/+/, '');
+    const absolutePath = path.resolve(webDistRoot, normalizedPath);
+
+    if (!absolutePath.startsWith(webDistRoot)) {
+      return false;
+    }
+
+    try {
+      const body = await readFile(absolutePath);
+      response.writeHead(statusCode, { 'content-type': contentTypeForPath(absolutePath) });
+      response.end(body);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  void (async () => {
+    if (pathname === '/') {
+      if (await serveFile('index.html')) {
+        return;
+      }
+    }
+
+    if (pathname !== '/' && !pathname.endsWith('/')) {
+      if (await serveFile(pathname)) {
+        return;
+      }
+    }
+
+    if (await serveFile('index.html')) {
+      return;
+    }
+
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ ok: true }));
+  })();
 });
 
 const websocketServer = new WebSocketServer({ server });
