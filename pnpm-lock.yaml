@@ -81,6 +81,8 @@ importers:
         specifier: ^19.2.4
         version: 19.2.5(react@19.2.5)
 
+  packages/animation-core: {}
+
   packages/game-registry:
     dependencies:
       '@games/game-sdk':
@@ -98,9 +100,24 @@ importers:
 
   packages/games/splendor:
     dependencies:
+      '@games/animation-core':
+        specifier: workspace:*
+        version: link:../../animation-core
       '@games/game-sdk':
         specifier: workspace:*
         version: link:../../game-sdk
+      '@games/ui':
+        specifier: workspace:*
+        version: link:../../ui
+      react:
+        specifier: ^19.2.4
+        version: 19.2.5
+
+  packages/ui:
+    dependencies:
+      '@games/animation-core':
+        specifier: workspace:*
+        version: link:../animation-core
       react:
         specifier: ^19.2.4
         version: 19.2.5
