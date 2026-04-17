@@ -1,7 +1,7 @@
-import { type ActiveEffectMap } from '@games/animation-core';
+import { type ActiveEffectMap, type ResolvedOverlayActor } from '@games/animation-core';
 import { ActionSheet, SegmentedControl, useAnimationRunner } from '@games/ui';
 import { type GameClientModule, type GameRenderProps } from '@games/game-sdk';
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   getAutoPayment,
@@ -258,33 +258,30 @@ const emptyPlayerReceiveAnimation: PlayerReceiveAnimation = {
 };
 
 const groupChipTranslations = (
-  translations: ReturnType<
+  overlays: ReturnType<
     typeof useAnimationRunner<SplendorState, SplendorAnimationObject>
-  >['translations'],
+  >['overlays'],
 ) => {
   const grouped = new Map<
     string,
     {
       readonly color: GemColor;
       count: number;
-      readonly delayMs?: number;
       readonly durationMs: number;
-      readonly from: string;
-      readonly fromX: number;
-      readonly fromY: number;
       readonly id: string;
-      readonly to: string;
-      readonly toX: number;
-      readonly toY: number;
+      readonly startLeft: number;
+      readonly startTop: number;
+      readonly endLeft: number;
+      readonly endTop: number;
     }
   >();
 
-  for (const translation of translations) {
-    if (translation.object.kind !== 'chip') {
+  for (const overlay of overlays) {
+    if (overlay.phase !== 'to' || overlay.object.kind !== 'chip') {
       continue;
     }
 
-    const key = `${translation.object.color}:${translation.from}:${translation.to}`;
+    const key = `${overlay.object.color}:${Math.round(overlay.startLeft)}:${Math.round(overlay.startTop)}:${Math.round(overlay.endLeft)}:${Math.round(overlay.endTop)}`;
     const existing = grouped.get(key);
 
     if (existing) {
@@ -293,17 +290,14 @@ const groupChipTranslations = (
     }
 
     grouped.set(key, {
-      color: translation.object.color,
+      color: overlay.object.color,
       count: 1,
-      ...(translation.delayMs !== undefined ? { delayMs: translation.delayMs } : {}),
-      durationMs: translation.durationMs,
-      from: translation.from,
-      fromX: translation.fromX,
-      fromY: translation.fromY,
+      durationMs: overlay.durationMs,
+      endLeft: overlay.endLeft,
+      endTop: overlay.endTop,
       id: key,
-      to: translation.to,
-      toX: translation.toX,
-      toY: translation.toY,
+      startLeft: overlay.startLeft,
+      startTop: overlay.startTop,
     });
   }
 
@@ -316,7 +310,7 @@ const spreadGroupedChipTranslations = (
   const pathGroups = new Map<string, ReturnType<typeof groupChipTranslations>[number][]>();
 
   for (const translation of translations) {
-    const key = `${translation.from}:${translation.to}`;
+    const key = `${translation.startLeft}:${translation.startTop}:${translation.endLeft}:${translation.endTop}`;
     const existing = pathGroups.get(key) ?? [];
     existing.push(translation);
     pathGroups.set(key, existing);
@@ -357,21 +351,38 @@ const deriveActiveAnimationState = (
 ): {
   readonly changedBankColors: readonly GemColor[];
   readonly changedDeckTiers: readonly CardTier[];
-  readonly hiddenMarketCardIds: ReadonlySet<string>;
   readonly changedPlayerIds: readonly string[];
 } => ({
   changedBankColors: gemOrder.filter((color) => activeEffects.bulge.has(splendorAnimationTargets.bankChip(color))),
   changedDeckTiers: cardTierOrder.filter((tier) => activeEffects.bulge.has(splendorAnimationTargets.deck(tier))),
-  hiddenMarketCardIds: new Set(
-    Array.from(activeEffects.fade)
-      .filter((targetId) => targetId.startsWith('market:'))
-      .map((targetId) => targetId.replace('market:', '')),
-  ),
   changedPlayerIds: Array.from(activeEffects.highlight)
     .filter((targetId) => targetId.startsWith('player:') && targetId.endsWith(':row'))
     .map((targetId) => targetId.split(':')[1]!)
     .filter((playerId, index, playerIds) => playerIds.indexOf(playerId) === index),
 });
+
+const deriveOutgoingPlaceholderMarketCardIds = (
+  overlays: readonly ResolvedOverlayActor<SplendorAnimationObject>[],
+  state: SplendorState,
+): ReadonlySet<string> => {
+  const isCardStillInMarket = (cardId: string): boolean =>
+    cardTierOrder.some((tier) => state.market[`tier${tier}`].some((card) => card.id === cardId));
+
+  return new Set(
+    overlays.flatMap((overlay) => {
+      if (
+        overlay.phase !== 'to' ||
+        !overlay.sourceTarget?.startsWith('market:') ||
+        overlay.object.kind !== 'card' ||
+        !isCardStillInMarket(overlay.object.card.id)
+      ) {
+        return [];
+      }
+
+      return [overlay.sourceTarget.replace('market:', '')];
+    }),
+  );
+};
 
 const deriveTargetPlayerAnimations = (
   activeEffects: ActiveEffectMap,
@@ -515,6 +526,7 @@ const NobleMarkers = ({ nobleIds }: { readonly nobleIds: readonly string[] }) =>
 const PlayerSummaryRow = ({
   chipTargetRefByColor,
   currentUserId,
+  isActivePlayer,
   isRecentlyUpdated,
   nobleTargetRef,
   player,
@@ -523,7 +535,6 @@ const PlayerSummaryRow = ({
   scoreTargetRef,
   sourceChipBulges,
   onPress,
-  reservedTargetRef,
   tableauBonusTargetRefByColor,
   tableauTargetRef,
 }: {
@@ -531,12 +542,12 @@ const PlayerSummaryRow = ({
     Partial<Record<GemColor, (node: HTMLSpanElement | null) => void>>
   >;
   readonly currentUserId: string | undefined;
+  readonly isActivePlayer: boolean;
   readonly isRecentlyUpdated: boolean;
   readonly nobleTargetRef?: (node: HTMLDivElement | null) => void;
   readonly onPress: () => void;
   readonly player: PlayerSummaryModel;
   readonly playerAnimation: PlayerReceiveAnimation;
-  readonly reservedTargetRef?: (node: HTMLDivElement | null) => void;
   readonly rowRef?: (node: HTMLButtonElement | null) => void;
   readonly scoreTargetRef?: (node: HTMLParagraphElement | null) => void;
   readonly sourceChipBulges: readonly GemColor[];
@@ -546,6 +557,7 @@ const PlayerSummaryRow = ({
   readonly tableauTargetRef?: (node: HTMLDivElement | null) => void;
 }) => {
   const isCurrentUser = player.id === currentUserId;
+  const isWaitingOnOpponent = isActivePlayer && !isCurrentUser;
   const totalTableauCards = tokenColorOrder.reduce(
     (sum, color) => sum + player.tableauBonuses[color],
     0,
@@ -556,9 +568,13 @@ const PlayerSummaryRow = ({
     <button
       ref={rowRef}
       className={`relative w-full overflow-hidden rounded-[1rem] border px-2.5 py-1.5 text-left ${
-        isCurrentUser
+        isActivePlayer && isCurrentUser
           ? 'border-amber-300/45 bg-amber-300/10'
-          : 'border-white/8 bg-white/3'
+          : isWaitingOnOpponent
+            ? 'border-sky-300/35 bg-sky-400/8'
+            : isCurrentUser
+              ? 'border-amber-300/45 bg-amber-300/10'
+              : 'border-white/8 bg-white/3'
       } ${isRecentlyUpdated ? 'player-row-receive' : ''}`}
       onClick={onPress}
       type="button"
@@ -570,6 +586,17 @@ const PlayerSummaryRow = ({
             {isCurrentUser ? (
               <span className="inline-flex h-5 items-center rounded-full border border-sky-300/25 px-2 text-[9px] leading-none uppercase tracking-[0.15em] text-sky-200">
                 You
+              </span>
+            ) : null}
+            {isWaitingOnOpponent ? (
+              <span className="inline-flex h-5 items-center gap-1 rounded-full border border-sky-300/25 bg-sky-300/8 px-2 text-[9px] leading-none uppercase tracking-[0.18em] text-sky-200/90">
+                <span className="h-1.5 w-1.5 rounded-full bg-sky-300 animate-pulse" />
+                Waiting
+              </span>
+            ) : null}
+            {isActivePlayer && isCurrentUser ? (
+              <span className="inline-flex h-5 items-center rounded-full border border-amber-300/25 bg-amber-300/8 px-2 text-[9px] leading-none uppercase tracking-[0.18em] text-amber-100">
+                Active
               </span>
             ) : null}
           </div>
@@ -600,7 +627,7 @@ const PlayerSummaryRow = ({
             />
           </div>
           <div className="flex items-center gap-2 justify-self-end">
-            <div ref={reservedTargetRef}>
+            <div className="relative">
               <ReservedMarkers
                 isHighlighted={playerAnimation.reservedChanged}
                 tiers={player.reservedTiers}
@@ -703,6 +730,60 @@ export const SplendorGameView = ({
       };
     }
 
+    const reservedTargetMatch = targetId.match(/^player:([^:]+):reserved$/);
+
+    if (reservedTargetMatch) {
+      const playerId = reservedTargetMatch[1];
+
+      if (!playerId) {
+        return null;
+      }
+
+      const rowNode = targetNodeRefs.current[splendorAnimationTargets.playerRow(playerId)];
+
+      if (!rowNode) {
+        return null;
+      }
+
+      const rowRect = rowNode.getBoundingClientRect();
+      const reservedWidth = Math.min(74, rowRect.width * 0.22);
+      const reservedHeight = reservedWidth * (7 / 5);
+
+      return {
+        height: reservedHeight,
+        left: rowRect.right - reservedWidth - 28,
+        top: rowRect.top + 30,
+        width: reservedWidth,
+      };
+    }
+
+    const tableauTargetMatch = targetId.match(/^player:([^:]+):tableau$/);
+
+    if (tableauTargetMatch) {
+      const playerId = tableauTargetMatch[1];
+
+      if (!playerId) {
+        return null;
+      }
+
+      const tableauNode = targetNodeRefs.current[splendorAnimationTargets.playerTableau(playerId)];
+
+      if (!tableauNode) {
+        return null;
+      }
+
+      const tableauRect = tableauNode.getBoundingClientRect();
+      const tableauCardWidth = Math.min(82, Math.max(70, tableauRect.width * 0.19));
+      const tableauCardHeight = tableauCardWidth * (7 / 5);
+
+      return {
+        height: tableauCardHeight,
+        left: tableauRect.left + 10,
+        top: tableauRect.top + (tableauRect.height - tableauCardHeight) / 2,
+        width: tableauCardWidth,
+      };
+    }
+
     const node = targetNodeRefs.current[targetId];
 
     if (!node) {
@@ -745,8 +826,8 @@ export const SplendorGameView = ({
   const playerSummaries = useMemo(() => derivePlayerSummaries(displayedState), [displayedState]);
   const animationState = deriveActiveAnimationState(animationFrame.activeEffects);
   const groupedChipTranslations = useMemo(
-    () => groupChipTranslations(animationFrame.translations),
-    [animationFrame.translations],
+    () => groupChipTranslations(animationFrame.overlays),
+    [animationFrame.overlays],
   );
   const displayedChipTranslations = useMemo(
     () => spreadGroupedChipTranslations(groupedChipTranslations),
@@ -754,10 +835,77 @@ export const SplendorGameView = ({
   );
   const playerAnimations = deriveTargetPlayerAnimations(animationFrame.activeEffects, playerSummaries);
   const sourceChipBulges = deriveSourceChipBulgeState(animationFrame.activeEffects, playerSummaries);
-  const cardTranslations = animationFrame.translations.filter(
-    (translation): translation is typeof animationFrame.translations[number] & {
-      readonly object: Extract<SplendorAnimationObject, { readonly kind: 'card' | 'noble' }>;
-    } => translation.object.kind === 'card' || translation.object.kind === 'noble',
+  const currentCardOverlays = useMemo(
+    () =>
+      animationFrame.overlays.filter(
+        (overlay): overlay is typeof animationFrame.overlays[number] & {
+          readonly object: Extract<SplendorAnimationObject, { readonly kind: 'card' | 'noble' }>;
+        } => overlay.object.kind === 'card' || overlay.object.kind === 'noble',
+      ),
+    [animationFrame.overlays],
+  );
+  const overlayPersistenceRef = useRef(
+    new Map<
+      string,
+      {
+        readonly lastSeenAt: number;
+        readonly overlay: (typeof currentCardOverlays)[number];
+      }
+    >(),
+  );
+  const [retainedCardOverlays, setRetainedCardOverlays] = useState<
+    readonly (typeof currentCardOverlays)[number][]
+  >([]);
+  useEffect(() => {
+    const now = performance.now();
+    const cache = overlayPersistenceRef.current;
+    const seenIds = new Set<string>();
+    const retentionMsForOverlay = (
+      overlay: (typeof currentCardOverlays)[number],
+    ): number => {
+      if (overlay.phase === 'fadeTo') {
+        return 0;
+      }
+
+      return overlay.id.startsWith('card:market-reveal:') ? 34 : 280;
+    };
+
+    for (const overlay of currentCardOverlays) {
+      seenIds.add(overlay.id);
+      cache.set(overlay.id, {
+        lastSeenAt: now,
+        overlay,
+      });
+    }
+
+    if (!animationFrame.isAnimating) {
+      cache.clear();
+      setRetainedCardOverlays([]);
+      return;
+    }
+
+    for (const [objectId, entry] of [...cache.entries()]) {
+      if (
+        !seenIds.has(objectId) &&
+        now - entry.lastSeenAt > retentionMsForOverlay(entry.overlay)
+      ) {
+        cache.delete(objectId);
+      }
+    }
+
+    const retainedOverlays = [...cache.values()]
+      .map((entry) => entry.overlay)
+      .filter((overlay) => !seenIds.has(overlay.id));
+
+    setRetainedCardOverlays(retainedOverlays);
+  }, [animationFrame.isAnimating, currentCardOverlays]);
+  const visibleCardOverlays = useMemo(
+    () => [...currentCardOverlays, ...retainedCardOverlays],
+    [currentCardOverlays, retainedCardOverlays],
+  );
+  const placeholderMarketCardIds = useMemo(
+    () => deriveOutgoingPlaceholderMarketCardIds(currentCardOverlays, displayedState),
+    [currentCardOverlays, displayedState],
   );
   const activePlayer = displayedState.players[displayedState.turn.activePlayerIndex] ?? null;
   const activePlayerName = activePlayer?.identity.displayName ?? 'Unknown player';
@@ -1519,9 +1667,10 @@ export const SplendorGameView = ({
                     tier={tier}
                   />
                 </div>
-                {displayedState.market[`tier${tier}`].map((card) => (
-                  <div key={card.id} ref={registerTarget(splendorAnimationTargets.marketCard(card.id))}>
-                    {animationState.hiddenMarketCardIds.has(card.id) ? (
+                {displayedState.market[`tier${tier}`].map((card, index) => (
+                  <div key={card.id} ref={registerTarget(splendorAnimationTargets.marketSlot(tier, index))}>
+                    <div ref={registerTarget(splendorAnimationTargets.marketCard(card.id))}>
+                    {placeholderMarketCardIds.has(card.id) ? (
                       <div className="aspect-[5/7] w-full rounded-[1.05rem] border border-dashed border-white/10 bg-white/3" />
                     ) : (
                       <SplendorCard
@@ -1531,6 +1680,7 @@ export const SplendorGameView = ({
                         size="compact"
                       />
                     )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1662,62 +1812,12 @@ export const SplendorGameView = ({
   ] as const;
   const renderCardAnimationObject = (
     object: Extract<SplendorAnimationObject, { readonly kind: 'card' }>,
-    effect?: 'expand' | 'flip' | 'hold' | 'land',
-  ) => {
-    const cardContent =
-      object.motion === 'reserve-deck' && effect !== 'hold' && effect !== 'land' ? (
-        <DeckCard hideCount remainingCount={0} size="compact" tier={object.tier} />
-      ) : object.motion === 'reserve-visible' && effect !== 'hold' && effect !== 'land' ? (
-        <DeckCard hideCount remainingCount={0} size="compact" tier={object.tier} />
-      ) : (
-        <SplendorCard card={object.card} size="compact" />
-      );
-
-    if (effect === 'expand') {
-      return object.motion === 'purchase-reserved' ? (
-        <div className="card-expand-only-inner relative aspect-[5/7] w-full">
-          <div className="card-flight-face absolute inset-0">
-            <SplendorCard card={object.card} size="compact" />
-          </div>
-          <div className="card-flight-face absolute inset-0" style={{ transform: 'rotateY(180deg)' }}>
-            <DeckCard hideCount remainingCount={0} size="compact" tier={object.tier} />
-          </div>
-        </div>
-      ) : (
-        cardContent
-      );
-    }
-
-    if (effect === 'flip') {
-      if (object.motion === 'reserve-visible') {
-        return (
-          <div className="card-flip-only-inner relative aspect-[5/7] w-full">
-            <div className="card-flight-face absolute inset-0">
-              <SplendorCard card={object.card} size="compact" />
-            </div>
-            <div className="card-flight-face absolute inset-0" style={{ transform: 'rotateY(180deg)' }}>
-              <DeckCard hideCount remainingCount={0} size="compact" tier={object.tier} />
-            </div>
-          </div>
-        );
-      }
-
-      if (object.motion === 'purchase-reserved') {
-        return (
-          <div className="card-flip-reveal-only-inner relative aspect-[5/7] w-full">
-            <div className="card-flight-face absolute inset-0">
-              <SplendorCard card={object.card} size="compact" />
-            </div>
-            <div className="card-flight-face absolute inset-0" style={{ transform: 'rotateY(180deg)' }}>
-              <DeckCard hideCount remainingCount={0} size="compact" tier={object.tier} />
-            </div>
-          </div>
-        );
-      }
-    }
-
-    return cardContent;
-  };
+  ) =>
+    object.face === 'back' ? (
+      <DeckCard hideCount remainingCount={0} size="compact" tier={object.tier} />
+    ) : (
+      <SplendorCard card={object.card} size="compact" />
+    );
 
   return (
     <main
@@ -1845,13 +1945,13 @@ export const SplendorGameView = ({
                           ]),
                         ) as Partial<Record<GemColor, (node: HTMLSpanElement | null) => void>>}
                         currentUserId={playerId ?? undefined}
+                        isActivePlayer={activePlayer?.identity.id === player.id}
                         isRecentlyUpdated={animationState.changedPlayerIds.includes(player.id)}
                         key={`summary-${player.id}`}
                         nobleTargetRef={registerTarget(splendorAnimationTargets.playerNobles(player.id))}
                         onPress={() => setSelection({ type: 'player', playerId: player.id })}
                         player={player}
                         playerAnimation={playerAnimations[player.id] ?? emptyPlayerReceiveAnimation}
-                        reservedTargetRef={registerTarget(splendorAnimationTargets.playerReserved(player.id))}
                         rowRef={registerTarget(splendorAnimationTargets.playerRow(player.id)) as (node: HTMLButtonElement | null) => void}
                         scoreTargetRef={registerTarget(splendorAnimationTargets.playerScore(player.id)) as (node: HTMLParagraphElement | null) => void}
                         sourceChipBulges={sourceChipBulges.playerColorsById[player.id] ?? []}
@@ -1924,12 +2024,11 @@ export const SplendorGameView = ({
           className="chip-flight fixed z-50 inline-flex items-center justify-center"
           style={
             {
-              ...(translation.delayMs !== undefined ? { animationDelay: `${translation.delayMs}ms` } : {}),
               animationDuration: `${translation.durationMs}ms`,
-              left: `${translation.fromX}px`,
-              top: `${translation.fromY}px`,
-              '--chip-dx': `${translation.toX - translation.fromX + translation.laneOffsetX}px`,
-              '--chip-dy': `${translation.toY - translation.fromY + translation.laneOffsetY}px`,
+              left: `${translation.startLeft}px`,
+              top: `${translation.startTop}px`,
+              '--chip-dx': `${translation.endLeft - translation.startLeft + translation.laneOffsetX}px`,
+              '--chip-dy': `${translation.endTop - translation.startTop + translation.laneOffsetY}px`,
             } as CSSProperties
           }
         >
@@ -1941,59 +2040,82 @@ export const SplendorGameView = ({
         </span>
       ))}
 
-      {cardTranslations.map((translation) => (
+      {visibleCardOverlays.map((overlay) => (
         <div
-          key={translation.object.kind === 'card' ? `${translation.object.motion}:${translation.object.card.id}:${translation.from}:${translation.to}` : `${translation.object.noble.id}:${translation.from}:${translation.to}`}
+          key={`overlay:${overlay.id}`}
           aria-hidden="true"
           className={`fixed z-50 pointer-events-none ${
-            translation.object.kind === 'noble' ? 'noble-flight w-[4.25rem]' : 'card-flight w-[4.6rem]'
+            overlay.object.kind === 'noble'
+              ? overlay.phase === 'to'
+                ? 'noble-flight w-[4.25rem]'
+                : 'w-[4.25rem]'
+              : `${
+                  overlay.phase === 'to'
+                    ? overlay.endPose.opacity < overlay.startPose.opacity
+                      ? 'card-exit'
+                      : 'card-flight'
+                    : overlay.phase === 'hold'
+                        ? 'card-hold'
+                        : overlay.phase === 'flipTo'
+                          ? 'card-flip-only card-overlay-pose'
+                          : overlay.phase === 'fadeTo'
+                            ? 'card-fade-out'
+                          : 'card-land card-overlay-pose'
+                }`
           }`}
           style={
-            {
-              ...(translation.delayMs !== undefined ? { animationDelay: `${translation.delayMs}ms` } : {}),
-              animationDuration: `${translation.durationMs}ms`,
-              left: `${translation.fromX}px`,
-              top: `${translation.fromY}px`,
-              '--card-dx': `${translation.toX - translation.fromX}px`,
-              '--card-dy': `${translation.toY - translation.fromY}px`,
-            } as CSSProperties
+            overlay.phase === 'to'
+              ? ({
+                  animationDuration: `${overlay.durationMs}ms`,
+                  left: `${overlay.startLeft}px`,
+                  top: `${overlay.startTop}px`,
+                  width: `${overlay.width}px`,
+                  '--card-dx': `${overlay.endLeft - overlay.startLeft + (overlay.endPose.x - overlay.startPose.x)}px`,
+                  '--card-dy': `${overlay.endTop - overlay.startTop + (overlay.endPose.y - overlay.startPose.y)}px`,
+                  '--overlay-from-opacity': overlay.startPose.opacity,
+                  '--overlay-from-rotate': overlay.startPose.rotate,
+                  '--overlay-from-scale': overlay.startPose.scale,
+                  '--overlay-to-opacity': overlay.endPose.opacity,
+                  '--overlay-to-rotate': overlay.endPose.rotate,
+                  '--overlay-to-scale': overlay.endPose.scale,
+                } as CSSProperties)
+              : overlay.phase === 'fadeTo'
+                ? ({
+                    animationDuration: `${overlay.durationMs}ms`,
+                    left: `${overlay.endLeft}px`,
+                    top: `${overlay.endTop}px`,
+                    width: `${overlay.width}px`,
+                    '--overlay-from-opacity': overlay.startPose.opacity,
+                    '--overlay-from-rotate': overlay.startPose.rotate,
+                    '--overlay-from-scale': overlay.startPose.scale,
+                    '--overlay-to-opacity': overlay.endPose.opacity,
+                    '--overlay-to-rotate': overlay.endPose.rotate,
+                    '--overlay-to-scale': overlay.endPose.scale,
+                  } as CSSProperties)
+              : ({
+                  animationDuration: `${overlay.durationMs}ms`,
+                  left: `${overlay.endLeft}px`,
+                  top: `${overlay.endTop}px`,
+                  opacity: overlay.endPose.opacity,
+                  transform: `translate3d(${overlay.endPose.x}px, ${overlay.endPose.y}px, 0) scale(${overlay.endPose.scale}) rotate(${overlay.endPose.rotate}deg)`,
+                  width: `${overlay.width}px`,
+                } as CSSProperties)
           }
         >
-          {translation.object.kind === 'noble' ? (
-            <NobleTile noble={translation.object.noble} size="compact" />
+          {overlay.object.kind === 'noble' ? (
+            <NobleTile noble={overlay.object.noble} size="compact" />
+          ) : overlay.phase === 'flipTo' && overlay.nextObject?.kind === 'card' ? (
+            <div className="card-flip-only-inner relative aspect-[5/7] w-full">
+              <div className="card-flight-face absolute inset-0">
+                {renderCardAnimationObject(overlay.object)}
+              </div>
+              <div className="card-flight-face absolute inset-0" style={{ transform: 'rotateY(180deg)' }}>
+                {renderCardAnimationObject(overlay.nextObject)}
+              </div>
+            </div>
           ) : (
-            renderCardAnimationObject(translation.object)
+            renderCardAnimationObject(overlay.object)
           )}
-        </div>
-      ))}
-
-      {animationFrame.attachedObjects.map((attachedObject, index) => (
-        <div
-          key={`${attachedObject.target}:${attachedObject.effect}:${index}`}
-          aria-hidden="true"
-          className={`fixed z-50 pointer-events-none w-[4.6rem] ${
-            attachedObject.effect === 'expand'
-              ? 'card-expand-only card-overlay-pose'
-              : attachedObject.effect === 'hold'
-                ? 'card-hold'
-                : attachedObject.effect === 'land'
-                  ? 'card-land card-overlay-pose'
-                  : 'card-flip-only card-overlay-pose'
-          }`}
-          style={
-            {
-              ...(attachedObject.delayMs !== undefined ? { animationDelay: `${attachedObject.delayMs}ms` } : {}),
-              animationDuration: `${attachedObject.durationMs}ms`,
-              left: `${attachedObject.left}px`,
-              top: `${attachedObject.top}px`,
-            } as CSSProperties
-          }
-        >
-          {attachedObject.object.kind === 'card'
-            ? renderCardAnimationObject(attachedObject.object, attachedObject.effect)
-            : attachedObject.object.kind === 'noble'
-              ? <NobleTile noble={attachedObject.object.noble} size="compact" />
-              : null}
         </div>
       ))}
 

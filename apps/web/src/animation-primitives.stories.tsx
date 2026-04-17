@@ -1,14 +1,17 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import {
+  animation,
   bulge,
   checkpoint,
-  expand,
-  flip,
-  land,
-  parallel,
+  clone,
+  flipTo,
+  hold,
+  overlay,
   pulseNumber,
-  serial,
-  translate,
+  removeAtEnd,
+  sequence,
+  targetEffect,
+  to,
   type Animation,
 } from '@games/animation-core';
 import { useAnimationRunner } from '@games/ui';
@@ -20,9 +23,9 @@ import { simulatedNobleState, withReservedPressure } from './splendor-story-help
 
 type PrimitiveSnapshot = { readonly stage: 'before' | 'after' };
 type PrimitiveObject =
-  | { readonly kind: 'chip'; readonly color: 'blue' | 'red' | 'green' | 'white' | 'black' | 'gold' }
-  | { readonly kind: 'card' }
-  | { readonly kind: 'noble' };
+  | { readonly color: 'blue' | 'red'; readonly kind: 'chip' }
+  | { readonly cardId: string; readonly face: 'back' | 'front'; readonly kind: 'card' }
+  | { readonly kind: 'noble'; readonly nobleId: string };
 
 const targets = {
   bank: 'primitive:bank',
@@ -69,15 +72,28 @@ const PrimitiveSandbox = ({
 
   const card = withReservedPressure().market.tier1[0]!;
   const noble = simulatedNobleState.nobles[0]!;
-  const activeBulges = frame.activeEffects.bulge;
   const scoreFlipping = frame.activeEffects['pulse-number'].has(targets.score);
+  const bankBulging = frame.activeEffects.bulge.has(targets.bank);
+
+  const renderObject = (object: PrimitiveObject) => {
+    if (object.kind === 'chip') {
+      return <GemPip color={object.color} count={1} size="sm" />;
+    }
+
+    if (object.kind === 'noble') {
+      return <NobleTile noble={noble} size="compact" />;
+    }
+
+    return object.face === 'back' ? (
+      <DeckCard hideCount remainingCount={0} size="compact" tier={2} />
+    ) : (
+      <SplendorCard card={card} size="compact" />
+    );
+  };
 
   return (
     <PageBackdrop>
-      <main
-        className="min-h-screen px-4 py-8 text-stone-100"
-        style={splendorAnimationCssVars as CSSProperties}
-      >
+      <main className="min-h-screen px-4 py-8 text-stone-100" style={splendorAnimationCssVars as CSSProperties}>
         <div className="mx-auto flex max-w-md flex-col gap-4">
           <button
             className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-stone-950"
@@ -99,16 +115,10 @@ const PrimitiveSandbox = ({
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span
-                  className={activeBulges.has(targets.bank) ? 'receive-bulge' : ''}
-                  ref={(node) => { refs.current[targets.bank] = node; }}
-                >
+                <span className={bankBulging ? 'receive-bulge' : ''} ref={(node) => { refs.current[targets.bank] = node; }}>
                   <GemPip color="red" count={5} />
                 </span>
-                <p
-                  className={`text-3xl font-semibold text-amber-50 ${scoreFlipping ? 'score-flip' : ''}`}
-                  ref={(node) => { refs.current[targets.score] = node; }}
-                >
+                <p className={`text-3xl font-semibold text-amber-50 ${scoreFlipping ? 'score-flip' : ''}`} ref={(node) => { refs.current[targets.score] = node; }}>
                   17
                 </p>
               </div>
@@ -131,57 +141,67 @@ const PrimitiveSandbox = ({
             </div>
           </section>
 
-          {frame.translations.map((translation, index) => (
+          {frame.overlays.map((overlay) => (
             <div
-              key={`${translation.from}:${translation.to}:${index}`}
+              key={overlay.id}
               aria-hidden="true"
               className={`fixed z-50 pointer-events-none ${
-                translation.object.kind === 'noble' ? 'noble-flight w-[4.25rem]' : translation.object.kind === 'card' ? 'card-flight w-[4.6rem]' : 'chip-flight'
+                overlay.object.kind === 'noble'
+                  ? overlay.phase === 'to'
+                    ? 'noble-flight w-[4.25rem]'
+                    : 'w-[4.25rem]'
+                  : overlay.object.kind === 'card'
+                    ? overlay.phase === 'to'
+                      ? 'card-flight w-[4.6rem]'
+                      : overlay.phase === 'flipTo'
+                        ? 'card-flip-only card-overlay-pose w-[4.6rem]'
+                        : 'card-hold w-[4.6rem]'
+                    : 'chip-flight'
               }`}
               style={
-                {
-                  ...(translation.delayMs !== undefined ? { animationDelay: `${translation.delayMs}ms` } : {}),
-                  animationDuration: `${translation.durationMs}ms`,
-                  left: `${translation.fromX}px`,
-                  top: `${translation.fromY}px`,
-                  ...(translation.object.kind === 'chip'
+                (overlay.object.kind === 'chip'
+                  ? {
+                      animationDuration: `${overlay.durationMs}ms`,
+                      left: `${overlay.startLeft}px`,
+                      top: `${overlay.startTop}px`,
+                      '--chip-dx': `${overlay.endLeft - overlay.startLeft}px`,
+                      '--chip-dy': `${overlay.endTop - overlay.startTop}px`,
+                    }
+                  : overlay.phase === 'to'
                     ? {
-                        '--chip-dx': `${translation.toX - translation.fromX}px`,
-                        '--chip-dy': `${translation.toY - translation.fromY}px`,
+                        animationDuration: `${overlay.durationMs}ms`,
+                        left: `${overlay.startLeft}px`,
+                        top: `${overlay.startTop}px`,
+                        '--card-dx': `${overlay.endLeft - overlay.startLeft + (overlay.endPose.x - overlay.startPose.x)}px`,
+                        '--card-dy': `${overlay.endTop - overlay.startTop + (overlay.endPose.y - overlay.startPose.y)}px`,
+                        '--overlay-from-opacity': overlay.startPose.opacity,
+                        '--overlay-from-rotate': overlay.startPose.rotate,
+                        '--overlay-from-scale': overlay.startPose.scale,
+                        '--overlay-to-opacity': overlay.endPose.opacity,
+                        '--overlay-to-rotate': overlay.endPose.rotate,
+                        '--overlay-to-scale': overlay.endPose.scale,
                       }
                     : {
-                        '--card-dx': `${translation.toX - translation.fromX}px`,
-                        '--card-dy': `${translation.toY - translation.fromY}px`,
-                      }),
-                } as CSSProperties
+                        animationDuration: `${overlay.durationMs}ms`,
+                        left: `${overlay.endLeft}px`,
+                        top: `${overlay.endTop}px`,
+                        opacity: overlay.endPose.opacity,
+                        transform: `translate3d(${overlay.endPose.x}px, ${overlay.endPose.y}px, 0) scale(${overlay.endPose.scale}) rotate(${overlay.endPose.rotate}deg)`,
+                      }) as CSSProperties
               }
             >
-              {translation.object.kind === 'chip' ? (
-                <GemPip color={translation.object.color} count={1} size="sm" />
-              ) : translation.object.kind === 'noble' ? (
-                <NobleTile noble={noble} size="compact" />
+              {overlay.phase === 'flipTo' && overlay.object.kind === 'card' && overlay.nextObject?.kind === 'card' ? (
+                <div className="card-flip-only-inner relative aspect-[5/7] w-full">
+                  <div className="card-flight-face absolute inset-0">
+                    {renderObject(overlay.object)}
+                  </div>
+                  <div className="card-flight-face absolute inset-0" style={{ transform: 'rotateY(180deg)' }}>
+                    {renderObject(overlay.nextObject)}
+                  </div>
+                </div>
               ) : (
-                <SplendorCard card={card} size="compact" />
+                renderObject(overlay.object)
               )}
-            </div>
-          ))}
-
-          {frame.attachedObjects.map((attachedObject, index) => (
-            <div
-              key={`${attachedObject.effect}:${attachedObject.target}:${index}`}
-              aria-hidden="true"
-              className={`fixed z-50 pointer-events-none w-[4.6rem] ${
-                attachedObject.effect === 'expand'
-                  ? 'card-expand-only card-overlay-pose'
-                  : attachedObject.effect === 'flip'
-                    ? 'card-flip-only card-overlay-pose'
-                    : attachedObject.effect === 'hold'
-                      ? 'card-hold'
-                      : 'card-land card-overlay-pose'
-              }`}
-              style={{ left: attachedObject.left, top: attachedObject.top } as CSSProperties}
-            >
-              <SplendorCard card={card} size="compact" />
             </div>
           ))}
         </div>
@@ -194,8 +214,7 @@ const meta = {
   component: PrimitiveSandbox,
   title: 'Animation/Primitives',
   args: {
-    createAnimation: () =>
-      checkpoint<PrimitiveSnapshot, PrimitiveObject>({ stage: 'after' }),
+    createAnimation: () => animation<PrimitiveSnapshot, PrimitiveObject>({ checkpoints: [checkpoint(0, { stage: 'after' })] }),
   },
   parameters: {
     viewport: {
@@ -209,68 +228,100 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const TranslateChip: Story = {
-  args: {},
   render: () => (
     <PrimitiveSandbox
       createAnimation={() =>
-        serial<PrimitiveSnapshot, PrimitiveObject>([
-          checkpoint<PrimitiveSnapshot, PrimitiveObject>({ stage: 'before' }),
-          translate<PrimitiveSnapshot, PrimitiveObject>({ kind: 'chip', color: 'blue' }, targets.chipFrom, targets.chipTo, {
-            durationMs: 1200,
-          }),
-          checkpoint<PrimitiveSnapshot, PrimitiveObject>({ stage: 'after' }),
-        ])
+        animation<PrimitiveSnapshot, PrimitiveObject>({
+          checkpoints: [
+            checkpoint(0, { stage: 'before' }),
+            checkpoint(1200, { stage: 'after' }),
+          ],
+          overlays: [
+            overlay({
+              id: 'chip:blue:0',
+              mount: clone(targets.chipFrom),
+              object: { color: 'blue', kind: 'chip' },
+              steps: [to(targets.chipTo, { durationMs: 1200, easing: 'flight' })],
+              unmount: removeAtEnd(),
+            }),
+          ],
+        })
       }
     />
   ),
 };
 
 export const BulgeAndScore: Story = {
-  args: {},
   render: () => (
     <PrimitiveSandbox
       createAnimation={() =>
-        parallel<PrimitiveSnapshot, PrimitiveObject>([
-          bulge<PrimitiveSnapshot, PrimitiveObject>(targets.bank, { durationMs: 320 }),
-          pulseNumber<PrimitiveSnapshot, PrimitiveObject>(targets.score, { durationMs: 900 }),
-        ])
+        animation<PrimitiveSnapshot, PrimitiveObject>({
+          effects: [
+            targetEffect(targets.bank, [bulge(320)]),
+            targetEffect(targets.score, [pulseNumber(900)]),
+          ],
+        })
       }
     />
   ),
 };
 
 export const FlipCard: Story = {
-  args: {},
   render: () => (
     <PrimitiveSandbox
       createAnimation={() =>
-        serial<PrimitiveSnapshot, PrimitiveObject>([
-          expand<PrimitiveSnapshot, PrimitiveObject>({ kind: 'card' }, targets.cardFrom, { durationMs: 420 }),
-          flip<PrimitiveSnapshot, PrimitiveObject>({ kind: 'card' }, targets.cardFrom, { durationMs: 320 }),
-          land<PrimitiveSnapshot, PrimitiveObject>({ kind: 'card' }, targets.cardTo, { durationMs: 320 }),
-        ])
+        animation<PrimitiveSnapshot, PrimitiveObject>({
+          checkpoints: [
+            checkpoint(0, { stage: 'before' }),
+            checkpoint(1060, { stage: 'after' }),
+          ],
+          overlays: [
+            overlay({
+              id: 'card:demo',
+              mount: clone(targets.cardFrom),
+              object: { cardId: 'demo', face: 'back', kind: 'card' },
+              steps: [
+                sequence([
+                  to('self', { durationMs: 420, scale: 1, y: -8 }),
+                  flipTo({ cardId: 'demo', face: 'front', kind: 'card' }, { durationMs: 320 }),
+                  to(targets.cardTo, { durationMs: 320, rotate: 0, scale: 1, y: 0 }),
+                ]),
+              ],
+              unmount: removeAtEnd(),
+            }),
+          ],
+        })
       }
     />
   ),
 };
 
 export const ParallelSequence: Story = {
-  args: {},
   render: () => (
     <PrimitiveSandbox
       createAnimation={() =>
-        serial<PrimitiveSnapshot, PrimitiveObject>([
-          checkpoint<PrimitiveSnapshot, PrimitiveObject>({ stage: 'before' }),
-          parallel<PrimitiveSnapshot, PrimitiveObject>([
-            translate<PrimitiveSnapshot, PrimitiveObject>({ kind: 'chip', color: 'red' }, targets.chipFrom, targets.chipTo, {
-              durationMs: 1200,
+        animation<PrimitiveSnapshot, PrimitiveObject>({
+          checkpoints: [
+            checkpoint(0, { stage: 'before' }),
+            checkpoint(1200, { stage: 'after' }),
+          ],
+          overlays: [
+            overlay({
+              id: 'chip:red:0',
+              mount: clone(targets.chipFrom),
+              object: { color: 'red', kind: 'chip' },
+              steps: [to(targets.chipTo, { durationMs: 1200, easing: 'flight' })],
+              unmount: removeAtEnd(),
             }),
-            translate<PrimitiveSnapshot, PrimitiveObject>({ kind: 'noble' }, targets.nobleFrom, targets.nobleTo, {
-              durationMs: 1200,
+            overlay({
+              id: 'noble:demo',
+              mount: clone(targets.nobleFrom),
+              object: { kind: 'noble', nobleId: simulatedNobleState.nobles[0]!.id },
+              steps: [to(targets.nobleTo, { durationMs: 1200, easing: 'flight', scale: 0.94 })],
+              unmount: removeAtEnd(),
             }),
-          ]),
-          checkpoint<PrimitiveSnapshot, PrimitiveObject>({ stage: 'after' }),
-        ])
+          ],
+        })
       }
     />
   ),

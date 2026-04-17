@@ -1,335 +1,559 @@
 import {
   type ActiveEffectMap,
   type Animation,
-  type AnimationEffectKind,
   type AnimationFrame,
   type AnimationTargetId,
   type AnimationTargetResolver,
-  type ResolvedAttachedObject,
-  type ResolvedTranslation,
+  type OverlayAnimation,
+  type OverlayMount,
+  type OverlayPose,
+  type OverlayStep,
+  type ResolvedOverlayActor,
+  type ResolvedRect,
+  type TargetEffectAnimation,
+  type TargetEffectKind,
+  type TargetEffectStep,
 } from './types.js';
 
-type TranslationEvent<TObject> = {
-  readonly delayMs?: number;
-  readonly durationMs: number;
-  readonly from: AnimationTargetId;
-  readonly object: TObject;
-  readonly startMs: number;
-  readonly to: AnimationTargetId;
-};
+interface OverlayAnchorTarget {
+  readonly kind: 'target';
+  readonly target: AnimationTargetId;
+}
 
-type TargetEffectEvent = {
-  readonly delayMs?: number;
+interface OverlayAnchorStatic {
+  readonly height: number;
+  readonly kind: 'static';
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+}
+
+type OverlayAnchor = OverlayAnchorTarget | OverlayAnchorStatic;
+
+interface OverlayState<TObject> {
+  readonly anchor: OverlayAnchor;
+  readonly object: TObject;
+  readonly pose: OverlayPose;
+}
+
+interface OverlayEvent<TObject> {
   readonly durationMs: number;
-  readonly effect: AnimationEffectKind;
+  readonly endState: OverlayState<TObject>;
+  readonly id: string;
+  readonly nextObject?: TObject;
+  readonly object: TObject;
+  readonly phase: 'fadeTo' | 'flipTo' | 'hold' | 'to';
+  readonly sizeRect?: ResolvedRect;
+  readonly sourceTarget?: AnimationTargetId;
+  readonly startMs: number;
+  readonly startState: OverlayState<TObject>;
+}
+
+interface TargetEffectEvent {
+  readonly durationMs: number;
+  readonly effect: TargetEffectKind;
   readonly startMs: number;
   readonly target: AnimationTargetId;
-};
-
-type AttachedEffectEvent<TObject> = {
-  readonly delayMs?: number;
-  readonly durationMs: number;
-  readonly effect: Extract<AnimationEffectKind, 'expand' | 'flip' | 'hold' | 'land'>;
-  readonly object: TObject;
-  readonly startMs: number;
-  readonly target: AnimationTargetId;
-};
-
-type InternalEvent<TObject> =
-  | { readonly kind: 'translate'; readonly event: TranslationEvent<TObject> }
-  | { readonly kind: 'target-effect'; readonly event: TargetEffectEvent }
-  | { readonly kind: 'attached-effect'; readonly event: AttachedEffectEvent<TObject> };
-
-interface CheckpointEntry<TSnapshot> {
-  readonly snapshot: TSnapshot;
-  readonly timeMs: number;
 }
 
 interface CompiledSegment<TSnapshot, TObject> {
-  readonly attachedObjects: readonly ResolvedAttachedObject<TObject>[];
   readonly durationMs: number;
   readonly index: number;
+  readonly overlays: readonly ResolvedOverlayActor<TObject>[];
   readonly presentedSnapshot: TSnapshot | null;
   readonly targetEffects: ActiveEffectMap;
-  readonly translations: readonly ResolvedTranslation<TObject>[];
 }
 
 interface CompiledAnimation<TSnapshot, TObject> {
   readonly finalSnapshot: TSnapshot | null;
   readonly segments: readonly CompiledSegment<TSnapshot, TObject>[];
-  readonly totalDurationMs: number;
 }
 
-type MutableEffectMap = Record<AnimationEffectKind, Set<AnimationTargetId>>;
+interface AnimationRunnerStateInternal<TSnapshot, TObject> {
+  readonly compiled: CompiledAnimation<TSnapshot, TObject> | null;
+  readonly frame: AnimationFrame<TSnapshot, TObject>;
+  readonly segmentIndex: number;
+}
+
+type MutableEffectMap = Record<TargetEffectKind, Set<AnimationTargetId>>;
+
+const defaultPose: OverlayPose = {
+  opacity: 1,
+  rotate: 0,
+  scale: 1,
+  x: 0,
+  y: 0,
+};
 
 const createEmptyEffects = (): MutableEffectMap => ({
   bulge: new Set(),
-  expand: new Set(),
   fade: new Set(),
-  flip: new Set(),
   highlight: new Set(),
-  hold: new Set(),
-  land: new Set(),
   'pulse-number': new Set(),
+  reveal: new Set(),
 });
 
 const cloneEffects = (effects: MutableEffectMap | ActiveEffectMap): ActiveEffectMap => ({
   bulge: new Set(effects.bulge),
-  expand: new Set(effects.expand),
   fade: new Set(effects.fade),
-  flip: new Set(effects.flip),
   highlight: new Set(effects.highlight),
-  hold: new Set(effects.hold),
-  land: new Set(effects.land),
   'pulse-number': new Set(effects['pulse-number']),
+  reveal: new Set(effects.reveal),
 });
 
-const collect = <TSnapshot, TObject>(
-  animation: Animation<TSnapshot, TObject>,
-  startMs: number,
-): {
-  readonly checkpoints: readonly CheckpointEntry<TSnapshot>[];
-  readonly durationMs: number;
-  readonly events: readonly InternalEvent<TObject>[];
-} => {
-  switch (animation.type) {
-    case 'checkpoint':
-      return {
-        checkpoints: [{ snapshot: animation.snapshot, timeMs: startMs }],
-        durationMs: 0,
-        events: [],
-      };
-    case 'wait':
-      return { checkpoints: [], durationMs: animation.durationMs, events: [] };
-    case 'translate':
-      return {
-        checkpoints: [],
-        durationMs: (animation.options.delayMs ?? 0) + animation.options.durationMs,
-        events: [
-          {
-            kind: 'translate',
-            event: {
-              ...(animation.options.delayMs !== undefined ? { delayMs: animation.options.delayMs } : {}),
-              durationMs: animation.options.durationMs,
-              from: animation.from,
-              object: animation.object,
-              startMs: startMs + (animation.options.delayMs ?? 0),
-              to: animation.to,
-            },
-          },
-        ],
-      };
-    case 'target-effect':
-      return {
-        checkpoints: [],
-        durationMs: (animation.options.delayMs ?? 0) + animation.options.durationMs,
-        events: [
-          {
-            kind: 'target-effect',
-            event: {
-              ...(animation.options.delayMs !== undefined ? { delayMs: animation.options.delayMs } : {}),
-              durationMs: animation.options.durationMs,
-              effect: animation.effect,
-              startMs: startMs + (animation.options.delayMs ?? 0),
-              target: animation.target,
-            },
-          },
-        ],
-      };
-    case 'attached-effect':
-      return {
-        checkpoints: [],
-        durationMs: (animation.options.delayMs ?? 0) + animation.options.durationMs,
-        events: [
-          {
-            kind: 'attached-effect',
-            event: {
-              ...(animation.options.delayMs !== undefined ? { delayMs: animation.options.delayMs } : {}),
-              durationMs: animation.options.durationMs,
-              effect: animation.effect,
-              object: animation.object,
-              startMs: startMs + (animation.options.delayMs ?? 0),
-              target: animation.target,
-            },
-          },
-        ],
-      };
-    case 'serial': {
-      const checkpoints: CheckpointEntry<TSnapshot>[] = [];
-      const events: InternalEvent<TObject>[] = [];
-      let cursor = startMs;
+const latestCheckpoint = <TSnapshot>(
+  checkpoints: readonly { readonly atMs: number; readonly snapshot: TSnapshot }[],
+  timeMs: number,
+  fallbackSnapshot: TSnapshot | null,
+): TSnapshot | null =>
+  checkpoints
+    .filter((entry) => entry.atMs <= timeMs)
+    .sort((left, right) => right.atMs - left.atMs)[0]?.snapshot ?? fallbackSnapshot;
 
-      for (const child of animation.animations) {
-        const compiled = collect(child, cursor);
-        checkpoints.push(...compiled.checkpoints);
-        events.push(...compiled.events);
-        cursor += compiled.durationMs;
-      }
+const resolveStaticRect = (point: { readonly left: number; readonly top: number }): ResolvedRect => ({
+  height: 0,
+  left: point.left,
+  top: point.top,
+  width: 0,
+});
 
-      return {
-        checkpoints,
-        durationMs: cursor - startMs,
-        events,
-      };
-    }
-    case 'parallel': {
-      const compiledChildren = animation.animations.map((child) => collect(child, startMs));
-
-      return {
-        checkpoints: compiledChildren.flatMap((child) => child.checkpoints),
-        durationMs: compiledChildren.reduce((max, child) => Math.max(max, child.durationMs), 0),
-        events: compiledChildren.flatMap((child) => child.events),
-      };
-    }
-  }
-};
-
-const resolveTranslation = <TObject>(
-  event: TranslationEvent<TObject>,
+const resolveAnchor = (
+  anchor: OverlayAnchor,
   resolveTargetRect: AnimationTargetResolver,
-): ResolvedTranslation<TObject> | null => {
-  const fromRect = resolveTargetRect(event.from);
-  const toRect = resolveTargetRect(event.to);
+): ResolvedRect | null =>
+  anchor.kind === 'target'
+    ? resolveTargetRect(anchor.target)
+    : {
+        height: anchor.height,
+        left: anchor.left,
+        top: anchor.top,
+        width: anchor.width,
+      };
 
-  if (!fromRect || !toRect) {
-    return null;
+const resolveMount = (
+  mount: OverlayMount,
+  resolveTargetRect: AnimationTargetResolver,
+): OverlayAnchor | null => {
+  if (mount.kind === 'clone') {
+    return { kind: 'target', target: mount.from };
   }
+
+  if (typeof mount.at === 'string') {
+    return { kind: 'target', target: mount.at };
+  }
+
+  const rect = resolveStaticRect(mount.at);
 
   return {
-    ...(event.delayMs !== undefined ? { delayMs: event.delayMs } : {}),
-    durationMs: event.durationMs,
-    from: event.from,
-    fromX: fromRect.left,
-    fromY: fromRect.top,
-    object: event.object,
-    to: event.to,
-    toX: toRect.left,
-    toY: toRect.top,
-  };
-};
-
-const resolveAttached = <TObject>(
-  event: AttachedEffectEvent<TObject>,
-  resolveTargetRect: AnimationTargetResolver,
-): ResolvedAttachedObject<TObject> | null => {
-  const rect = resolveTargetRect(event.target);
-
-  if (!rect) {
-    return null;
-  }
-
-  return {
-    ...(event.delayMs !== undefined ? { delayMs: event.delayMs } : {}),
-    durationMs: event.durationMs,
-    effect: event.effect,
     height: rect.height,
+    kind: 'static',
     left: rect.left,
-    object: event.object,
-    target: event.target,
     top: rect.top,
     width: rect.width,
   };
 };
 
-const latestCheckpoint = <TSnapshot>(
-  checkpoints: readonly CheckpointEntry<TSnapshot>[],
-  timeMs: number,
-  fallbackSnapshot: TSnapshot | null,
-): TSnapshot | null =>
-  checkpoints
-    .filter((entry) => entry.timeMs <= timeMs)
-    .sort((left, right) => right.timeMs - left.timeMs)[0]?.snapshot ?? fallbackSnapshot;
+const toAnchor = (
+  destination: AnimationTargetId | 'self',
+  currentAnchor: OverlayAnchor,
+): OverlayAnchor =>
+  destination === 'self'
+    ? currentAnchor
+    : {
+        kind: 'target',
+        target: destination,
+      };
+
+const compileOverlaySteps = <TObject>(
+  steps: readonly OverlayStep<TObject>[],
+  initialState: OverlayState<TObject>,
+  startMs: number,
+): {
+  readonly durationMs: number;
+  readonly endState: OverlayState<TObject>;
+  readonly events: readonly OverlayEvent<TObject>[];
+} => {
+  const compileStep = (
+    step: OverlayStep<TObject>,
+    state: OverlayState<TObject>,
+    offsetMs: number,
+  ): {
+    readonly durationMs: number;
+    readonly endState: OverlayState<TObject>;
+    readonly events: readonly OverlayEvent<TObject>[];
+  } => {
+    switch (step.type) {
+      case 'wait':
+        return {
+          durationMs: step.durationMs,
+          endState: state,
+          events: [],
+        };
+      case 'hold':
+        return {
+          durationMs: step.durationMs,
+          endState: state,
+          events: [
+            {
+              durationMs: step.durationMs,
+              endState: state,
+              id: '',
+              object: state.object,
+              phase: 'hold',
+              startMs: offsetMs,
+              startState: state,
+            },
+          ],
+        };
+      case 'flipTo': {
+        const endState = {
+          ...state,
+          object: step.object,
+        };
+
+        return {
+          durationMs: step.durationMs,
+          endState,
+          events: [
+            {
+              durationMs: step.durationMs,
+              endState,
+              id: '',
+              nextObject: step.object,
+              object: state.object,
+              phase: 'flipTo',
+              startMs: offsetMs,
+              startState: state,
+            },
+          ],
+        };
+      }
+      case 'fadeTo': {
+        const endState = {
+          ...state,
+          pose: {
+            opacity: step.opacity,
+            rotate: step.rotate ?? state.pose.rotate,
+            scale: step.scale ?? state.pose.scale,
+            x: step.x ?? state.pose.x,
+            y: step.y ?? state.pose.y,
+          },
+        };
+
+        return {
+          durationMs: step.durationMs,
+          endState,
+          events: [
+            {
+              durationMs: step.durationMs,
+              endState,
+              id: '',
+              object: state.object,
+              phase: 'fadeTo',
+              startMs: offsetMs,
+              startState: state,
+            },
+          ],
+        };
+      }
+      case 'to': {
+        const endState = {
+          anchor: toAnchor(step.to, state.anchor),
+          object: state.object,
+          pose: {
+            opacity: step.opacity ?? state.pose.opacity,
+            rotate: step.rotate ?? state.pose.rotate,
+            scale: step.scale ?? state.pose.scale,
+            x: step.x ?? state.pose.x,
+            y: step.y ?? state.pose.y,
+          },
+        };
+
+        return {
+          durationMs: step.durationMs,
+          endState,
+          events: [
+            {
+              durationMs: step.durationMs,
+              endState,
+              id: '',
+              object: state.object,
+              phase: 'to',
+              startMs: offsetMs,
+              startState: state,
+            },
+          ],
+        };
+      }
+      case 'sequence': {
+        let cursor = offsetMs;
+        let currentState = state;
+        const events: OverlayEvent<TObject>[] = [];
+
+        for (const child of step.steps) {
+          const compiled = compileStep(child, currentState, cursor);
+          cursor += compiled.durationMs;
+          currentState = compiled.endState;
+          events.push(...compiled.events);
+        }
+
+        return {
+          durationMs: cursor - offsetMs,
+          endState: currentState,
+          events,
+        };
+      }
+      case 'parallel': {
+        const compiledChildren = step.steps.map((child) => compileStep(child, state, offsetMs));
+        const durationMs = compiledChildren.reduce((max, child) => Math.max(max, child.durationMs), 0);
+        let endState = state;
+        let winningDurationMs = -1;
+
+        for (const child of compiledChildren) {
+          if (child.durationMs >= winningDurationMs) {
+            winningDurationMs = child.durationMs;
+            endState = child.endState;
+          }
+        }
+
+        return {
+          durationMs,
+          endState,
+          events: compiledChildren.flatMap((child) => child.events),
+        };
+      }
+    }
+  };
+
+  let cursor = startMs;
+  let state = initialState;
+  const events: OverlayEvent<TObject>[] = [];
+
+  for (const step of steps) {
+    const compiled = compileStep(step, state, cursor);
+    cursor += compiled.durationMs;
+    state = compiled.endState;
+    events.push(...compiled.events);
+  }
+
+  return {
+    durationMs: cursor - startMs,
+    endState: state,
+    events,
+  };
+};
+
+const compileTargetEffectSteps = (
+  steps: readonly TargetEffectStep[],
+  startMs: number,
+  target: AnimationTargetId,
+): {
+  readonly durationMs: number;
+  readonly events: readonly TargetEffectEvent[];
+} => {
+  const compileStep = (
+    step: TargetEffectStep,
+    offsetMs: number,
+  ): {
+    readonly durationMs: number;
+    readonly events: readonly TargetEffectEvent[];
+  } => {
+    switch (step.type) {
+      case 'wait':
+        return { durationMs: step.durationMs, events: [] };
+      case 'bulge':
+      case 'fade':
+      case 'highlight':
+      case 'pulse-number':
+      case 'reveal':
+        return {
+          durationMs: step.durationMs,
+          events: [
+            {
+              durationMs: step.durationMs,
+              effect: step.type,
+              startMs: offsetMs,
+              target,
+            },
+          ],
+        };
+      case 'sequence': {
+        let cursor = offsetMs;
+        const events: TargetEffectEvent[] = [];
+
+        for (const child of step.steps) {
+          const compiled = compileStep(child, cursor);
+          cursor += compiled.durationMs;
+          events.push(...compiled.events);
+        }
+
+        return {
+          durationMs: cursor - offsetMs,
+          events,
+        };
+      }
+      case 'parallel': {
+        const compiledChildren = step.steps.map((child) => compileStep(child, offsetMs));
+        return {
+          durationMs: compiledChildren.reduce((max, child) => Math.max(max, child.durationMs), 0),
+          events: compiledChildren.flatMap((child) => child.events),
+        };
+      }
+    }
+  };
+
+  let cursor = startMs;
+  const events: TargetEffectEvent[] = [];
+
+  for (const step of steps) {
+    const compiled = compileStep(step, cursor);
+    cursor += compiled.durationMs;
+    events.push(...compiled.events);
+  }
+
+  return {
+    durationMs: cursor - startMs,
+    events,
+  };
+};
 
 const buildBreakpoints = <TSnapshot, TObject>(
-  checkpoints: readonly CheckpointEntry<TSnapshot>[],
-  events: readonly InternalEvent<TObject>[],
-  totalDurationMs: number,
+  animation: Animation<TSnapshot, TObject>,
+  overlayEvents: readonly OverlayEvent<TObject>[],
+  effectEvents: readonly TargetEffectEvent[],
 ): readonly number[] =>
   [...new Set([
     0,
-    totalDurationMs,
-    ...checkpoints.map((entry) => entry.timeMs),
-    ...events.flatMap((entry) => {
-      const start = entry.event.startMs;
-      const end = entry.event.startMs + entry.event.durationMs;
-      return [start, end];
-    }),
+    ...animation.checkpoints.map((entry) => entry.atMs),
+    ...overlayEvents.flatMap((event) => [event.startMs, event.startMs + event.durationMs]),
+    ...effectEvents.flatMap((event) => [event.startMs, event.startMs + event.durationMs]),
   ])].sort((left, right) => left - right);
+
+const resolveOverlayEvent = <TObject>(
+  event: OverlayEvent<TObject>,
+  resolveTargetRect: AnimationTargetResolver,
+): ResolvedOverlayActor<TObject> | null => {
+  const startRect = resolveAnchor(event.startState.anchor, resolveTargetRect);
+  const endRect = resolveAnchor(event.endState.anchor, resolveTargetRect);
+
+  if (!startRect || !endRect) {
+    return null;
+  }
+
+  return {
+    durationMs: event.durationMs,
+    endLeft: endRect.left,
+    endPose: event.endState.pose,
+    endTop: endRect.top,
+    height: event.sizeRect?.height || endRect.height || startRect.height,
+    id: event.id,
+    ...(event.nextObject !== undefined ? { nextObject: event.nextObject } : {}),
+    object: event.object,
+    phase: event.phase,
+    ...(event.sourceTarget !== undefined ? { sourceTarget: event.sourceTarget } : {}),
+    startLeft: startRect.left,
+    startPose: event.startState.pose,
+    startTop: startRect.top,
+    width: event.sizeRect?.width || endRect.width || startRect.width,
+  };
+};
 
 const compile = <TSnapshot, TObject>(
   animation: Animation<TSnapshot, TObject>,
   resolveTargetRect: AnimationTargetResolver,
   fallbackSnapshot: TSnapshot | null,
 ): CompiledAnimation<TSnapshot, TObject> => {
-  const collected = collect(animation, 0);
-  const checkpoints = [...collected.checkpoints].sort((left, right) => left.timeMs - right.timeMs);
-  const breakpoints = buildBreakpoints(checkpoints, collected.events, collected.durationMs);
+  const overlayEvents: OverlayEvent<TObject>[] = [];
+  const effectEvents: TargetEffectEvent[] = [];
+  let totalDurationMs = 0;
+
+  for (const definition of animation.overlays) {
+    const mountAnchor = resolveMount(definition.mount, resolveTargetRect);
+
+    if (!mountAnchor) {
+      continue;
+    }
+
+    const mountRect = resolveAnchor(mountAnchor, resolveTargetRect);
+
+    if (!mountRect) {
+      continue;
+    }
+
+    const initialState: OverlayState<TObject> = {
+      anchor: mountAnchor,
+      object: definition.object,
+      pose: {
+        ...defaultPose,
+        ...definition.initialPose,
+      },
+    };
+
+    const compiled = compileOverlaySteps(definition.steps, initialState, 0);
+    overlayEvents.push(
+      ...compiled.events.map((event) => ({
+        ...event,
+        id: definition.id,
+        sizeRect: mountRect,
+        ...(definition.mount.kind === 'clone' ? { sourceTarget: definition.mount.from } : {}),
+      })),
+    );
+    totalDurationMs = Math.max(totalDurationMs, compiled.durationMs);
+  }
+
+  for (const definition of animation.effects) {
+    const compiled = compileTargetEffectSteps(definition.steps, 0, definition.target);
+    effectEvents.push(...compiled.events);
+    totalDurationMs = Math.max(totalDurationMs, compiled.durationMs);
+  }
+
+  totalDurationMs = Math.max(
+    totalDurationMs,
+    animation.checkpoints.reduce((max, entry) => Math.max(max, entry.atMs), 0),
+  );
+
+  const breakpoints = buildBreakpoints(animation, overlayEvents, effectEvents);
   const segments: CompiledSegment<TSnapshot, TObject>[] = [];
 
   for (let index = 0; index < breakpoints.length - 1; index += 1) {
     const startMs = breakpoints[index]!;
     const endMs = breakpoints[index + 1]!;
-    const targetEffects = createEmptyEffects();
-    const translations: ResolvedTranslation<TObject>[] = [];
-    const attachedObjects: ResolvedAttachedObject<TObject>[] = [];
+    const effects = createEmptyEffects();
+    const overlays = overlayEvents
+      .filter((event) => event.startMs <= startMs && event.startMs + event.durationMs > startMs)
+      .map((event) => resolveOverlayEvent(event, resolveTargetRect))
+      .filter((event): event is ResolvedOverlayActor<TObject> => event !== null);
 
-    for (const entry of collected.events) {
-      const eventStart = entry.event.startMs;
-      const eventEnd = entry.event.startMs + entry.event.durationMs;
-
-      if (!(eventStart <= startMs && eventEnd > startMs)) {
-        continue;
-      }
-
-      if (entry.kind === 'translate') {
-        const resolved = resolveTranslation(entry.event, resolveTargetRect);
-        if (resolved) {
-          translations.push(resolved);
-        }
-        continue;
-      }
-
-      targetEffects[entry.event.effect].add(entry.event.target);
-
-      if (entry.kind === 'attached-effect') {
-        const resolved = resolveAttached(entry.event, resolveTargetRect);
-        if (resolved) {
-          attachedObjects.push(resolved);
-        }
+    for (const event of effectEvents) {
+      if (event.startMs <= startMs && event.startMs + event.durationMs > startMs) {
+        effects[event.effect].add(event.target);
       }
     }
 
     segments.push({
-      attachedObjects,
       durationMs: endMs - startMs,
       index,
-      presentedSnapshot: latestCheckpoint(checkpoints, startMs, fallbackSnapshot),
-      targetEffects: cloneEffects(targetEffects),
-      translations,
+      overlays,
+      presentedSnapshot: latestCheckpoint(animation.checkpoints, startMs, fallbackSnapshot),
+      targetEffects: cloneEffects(effects),
     });
   }
 
   return {
-    finalSnapshot: latestCheckpoint(checkpoints, collected.durationMs, fallbackSnapshot),
+    finalSnapshot: latestCheckpoint(animation.checkpoints, totalDurationMs, fallbackSnapshot),
     segments,
-    totalDurationMs: collected.durationMs,
   };
 };
 
-export interface AnimationRunnerState<TSnapshot, TObject> {
-  readonly compiled: CompiledAnimation<TSnapshot, TObject> | null;
-  readonly frame: AnimationFrame<TSnapshot, TObject>;
-  readonly segmentIndex: number;
-}
+export interface AnimationRunnerState<TSnapshot, TObject> extends AnimationRunnerStateInternal<TSnapshot, TObject> {}
 
 export const createAnimationFrame = <TSnapshot, TObject>(
   presentedSnapshot: TSnapshot | null,
 ): AnimationFrame<TSnapshot, TObject> => ({
   activeEffects: createEmptyEffects(),
-  attachedObjects: [],
   isAnimating: false,
+  overlays: [],
   presentedSnapshot,
-  translations: [],
 });
 
 export const startAnimation = <TSnapshot, TObject>(
@@ -343,7 +567,7 @@ export const startAnimation = <TSnapshot, TObject>(
   if (!firstSegment) {
     return {
       compiled,
-      frame: createAnimationFrame(fallbackSnapshot),
+      frame: createAnimationFrame(compiled.finalSnapshot ?? fallbackSnapshot),
       segmentIndex: -1,
     };
   }
@@ -352,10 +576,9 @@ export const startAnimation = <TSnapshot, TObject>(
     compiled,
     frame: {
       activeEffects: firstSegment.targetEffects,
-      attachedObjects: firstSegment.attachedObjects,
       isAnimating: true,
+      overlays: firstSegment.overlays,
       presentedSnapshot: firstSegment.presentedSnapshot,
-      translations: firstSegment.translations,
     },
     segmentIndex: 0,
   };
@@ -382,10 +605,9 @@ export const advanceAnimation = <TSnapshot, TObject>(
     compiled: state.compiled,
     frame: {
       activeEffects: nextSegment.targetEffects,
-      attachedObjects: nextSegment.attachedObjects,
       isAnimating: true,
+      overlays: nextSegment.overlays,
       presentedSnapshot: nextSegment.presentedSnapshot,
-      translations: nextSegment.translations,
     },
     segmentIndex: nextSegment.index,
   };
@@ -393,5 +615,4 @@ export const advanceAnimation = <TSnapshot, TObject>(
 
 export const currentSegmentDuration = <TSnapshot, TObject>(
   state: AnimationRunnerState<TSnapshot, TObject>,
-): number =>
-  state.compiled?.segments[state.segmentIndex]?.durationMs ?? 0;
+): number => state.compiled?.segments[state.segmentIndex]?.durationMs ?? 0;

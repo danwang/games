@@ -62,9 +62,9 @@ export const GameRoomScreen = ({
 
   if (room.status === 'waiting') {
     return (
-      <section className={pageWrapClass}>
+      <section className={`${pageWrapClass} max-w-3xl`}>
         <Card as="header">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
             <div className="flex flex-col gap-2">
               <SectionLabel>{definition.displayName}</SectionLabel>
               <div className="flex flex-col gap-1 text-sm text-stone-400">
@@ -74,8 +74,9 @@ export const GameRoomScreen = ({
                 {configSummary ? <span>{configSummary}</span> : null}
               </div>
             </div>
-            <div className="flex flex-col gap-3 sm:items-end">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap lg:max-w-[15rem] lg:flex-col lg:items-stretch">
               <PillButton
+                className="sm:w-auto lg:w-full"
                 onClick={() => void navigator.clipboard.writeText(room.id)}
                 variant="secondary"
               >
@@ -83,13 +84,14 @@ export const GameRoomScreen = ({
               </PillButton>
               {isHost ? (
                 <PillButton
+                  className="sm:w-auto lg:w-full"
                   disabled={!isReadyToStart}
                   onClick={startRoom}
                 >
                   Start game
                 </PillButton>
               ) : null}
-              <PillButton onClick={leaveRoom} variant="secondary">
+              <PillButton className="sm:w-auto lg:w-full" onClick={leaveRoom} variant="secondary">
                 Back to lobby
               </PillButton>
             </div>

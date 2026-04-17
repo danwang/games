@@ -1,111 +1,143 @@
 import {
   type Animation,
-  type AnimationEffectKind,
-  type AnimationTargetId,
-  type TimedAnimationOptions,
+  type Checkpoint,
+  type OverlayAnimation,
+  type OverlayMount,
+  type OverlayStep,
+  type OverlayUnmount,
+  type Point,
+  type TargetEffectAnimation,
+  type TargetEffectStep,
+  type TargetRef,
 } from './types.js';
 
-export const serial = <TSnapshot, TObject>(
-  animations: readonly Animation<TSnapshot, TObject>[],
-): Animation<TSnapshot, TObject> => ({
-  type: 'serial',
-  animations,
+export const animation = <TSnapshot, TObject>({
+  checkpoints = [],
+  effects = [],
+  overlays = [],
+}: {
+  readonly checkpoints?: readonly Checkpoint<TSnapshot>[];
+  readonly effects?: readonly TargetEffectAnimation[];
+  readonly overlays?: readonly OverlayAnimation<TObject>[];
+}): Animation<TSnapshot, TObject> => ({
+  checkpoints,
+  effects,
+  overlays,
 });
 
-export const parallel = <TSnapshot, TObject>(
-  animations: readonly Animation<TSnapshot, TObject>[],
-): Animation<TSnapshot, TObject> => ({
-  type: 'parallel',
-  animations,
-});
-
-export const wait = <TSnapshot, TObject>(durationMs: number): Animation<TSnapshot, TObject> => ({
-  type: 'wait',
-  durationMs,
-});
-
-export const checkpoint = <TSnapshot, TObject>(snapshot: TSnapshot): Animation<TSnapshot, TObject> => ({
-  type: 'checkpoint',
+export const checkpoint = <TSnapshot>(atMs: number, snapshot: TSnapshot): Checkpoint<TSnapshot> => ({
+  atMs,
   snapshot,
 });
 
-export const translate = <TSnapshot, TObject>(
-  object: TObject,
-  from: AnimationTargetId,
-  to: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => ({
-  type: 'translate',
-  object,
+export const clone = (from: TargetRef): OverlayMount => ({
   from,
-  options,
-  to,
+  kind: 'clone',
 });
 
-const targetEffect = <TSnapshot, TObject>(
-  effect: AnimationEffectKind,
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => ({
-  type: 'target-effect',
-  effect,
-  options,
-  target,
+export const detached = (at: Point | TargetRef): OverlayMount => ({
+  at,
+  kind: 'detached',
 });
 
-const attachedEffect = <TSnapshot, TObject>(
-  effect: Extract<AnimationEffectKind, 'expand' | 'flip' | 'hold' | 'land'>,
+export const removeAtEnd = (): OverlayUnmount => ({
+  at: 'end',
+  kind: 'remove',
+});
+
+export const overlay = <TObject>(config: OverlayAnimation<TObject>): OverlayAnimation<TObject> => config;
+
+export const to = <TObject>(
+  destination: TargetRef | 'self',
+  options: Omit<Extract<OverlayStep<TObject>, { readonly type: 'to' }>, 'to' | 'type'>,
+): OverlayStep<TObject> => ({
+  ...options,
+  to: destination,
+  type: 'to',
+});
+
+export const hold = <TObject>(durationMs: number): OverlayStep<TObject> => ({
+  durationMs,
+  type: 'hold',
+});
+
+export const flipTo = <TObject>(
   object: TObject,
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => ({
-  type: 'attached-effect',
-  effect,
+  options: Omit<Extract<OverlayStep<TObject>, { readonly type: 'flipTo' }>, 'object' | 'type'>,
+): OverlayStep<TObject> => ({
+  ...options,
   object,
-  options,
+  type: 'flipTo',
+});
+
+export const fadeTo = <TObject>(
+  opacity: number,
+  options: Omit<Extract<OverlayStep<TObject>, { readonly type: 'fadeTo' }>, 'opacity' | 'type'>,
+): OverlayStep<TObject> => ({
+  ...options,
+  opacity,
+  type: 'fadeTo',
+});
+
+export const wait = <TObject>(durationMs: number): OverlayStep<TObject> => ({
+  durationMs,
+  type: 'wait',
+});
+
+export const sequence = <TObject>(steps: readonly OverlayStep<TObject>[]): OverlayStep<TObject> => ({
+  steps,
+  type: 'sequence',
+});
+
+export const parallel = <TObject>(steps: readonly OverlayStep<TObject>[]): OverlayStep<TObject> => ({
+  steps,
+  type: 'parallel',
+});
+
+export const targetEffect = (
+  target: TargetRef,
+  steps: readonly TargetEffectStep[],
+): TargetEffectAnimation => ({
+  steps,
   target,
 });
 
-export const bulge = <TSnapshot, TObject>(
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => targetEffect('bulge', target, options);
+export const bulge = (durationMs: number): TargetEffectStep => ({
+  durationMs,
+  type: 'bulge',
+});
 
-export const highlight = <TSnapshot, TObject>(
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => targetEffect('highlight', target, options);
+export const fade = (durationMs: number): TargetEffectStep => ({
+  durationMs,
+  type: 'fade',
+});
 
-export const fade = <TSnapshot, TObject>(
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => targetEffect('fade', target, options);
+export const highlight = (durationMs: number): TargetEffectStep => ({
+  durationMs,
+  type: 'highlight',
+});
 
-export const pulseNumber = <TSnapshot, TObject>(
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => targetEffect('pulse-number', target, options);
+export const pulseNumber = (durationMs: number): TargetEffectStep => ({
+  durationMs,
+  type: 'pulse-number',
+});
 
-export const expand = <TSnapshot, TObject>(
-  object: TObject,
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => attachedEffect('expand', object, target, options);
+export const reveal = (durationMs: number): TargetEffectStep => ({
+  durationMs,
+  type: 'reveal',
+});
 
-export const flip = <TSnapshot, TObject>(
-  object: TObject,
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => attachedEffect('flip', object, target, options);
+export const effectWait = (durationMs: number): TargetEffectStep => ({
+  durationMs,
+  type: 'wait',
+});
 
-export const hold = <TSnapshot, TObject>(
-  object: TObject,
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => attachedEffect('hold', object, target, options);
+export const effectSequence = (steps: readonly TargetEffectStep[]): TargetEffectStep => ({
+  steps,
+  type: 'sequence',
+});
 
-export const land = <TSnapshot, TObject>(
-  object: TObject,
-  target: AnimationTargetId,
-  options: TimedAnimationOptions,
-): Animation<TSnapshot, TObject> => attachedEffect('land', object, target, options);
+export const effectParallel = (steps: readonly TargetEffectStep[]): TargetEffectStep => ({
+  steps,
+  type: 'parallel',
+});

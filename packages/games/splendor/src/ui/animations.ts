@@ -1,18 +1,26 @@
 import {
+  animation,
   bulge,
   checkpoint,
-  expand,
+  clone,
+  detached,
+  effectSequence,
+  effectWait,
   fade,
-  flip,
+  fadeTo,
+  flipTo,
   highlight,
   hold,
-  land,
-  parallel,
+  overlay,
   pulseNumber,
-  serial,
-  translate,
+  reveal,
+  removeAtEnd,
+  sequence,
+  targetEffect,
+  to,
   wait,
   type Animation,
+  type TargetEffectAnimation,
 } from '@games/animation-core';
 
 import { type Card, type CardTier, type GemColor, type Noble } from '../model/types.js';
@@ -26,7 +34,10 @@ export interface SplendorAnimationTiming {
   readonly cardExpandDurationMs: number;
   readonly cardHoldPurchaseReservedMs: number;
   readonly cardHoldPurchaseVisibleMs: number;
+  readonly cardHoldReserveCompleteMs: number;
+  readonly cardHoldReserveRevealLeadMs: number;
   readonly cardHoldReserveVisibleMs: number;
+  readonly chipImpactLeadMs: number;
   readonly flightDurationMs: number;
   readonly flipDurationMs: number;
   readonly purchaseCardStaggerMs: number;
@@ -41,7 +52,10 @@ export const splendorAnimationTiming: SplendorAnimationTiming = {
   cardExpandDurationMs: 420,
   cardHoldPurchaseReservedMs: 400,
   cardHoldPurchaseVisibleMs: 100,
+  cardHoldReserveCompleteMs: 140,
+  cardHoldReserveRevealLeadMs: 600,
   cardHoldReserveVisibleMs: 100,
+  chipImpactLeadMs: 90,
   flightDurationMs: 1200,
   flipDurationMs: 320,
   purchaseCardStaggerMs: 250,
@@ -62,25 +76,19 @@ export const splendorAnimationCssVars = {
 
 export type SplendorAnimationObject =
   | {
-      readonly kind: 'chip';
       readonly color: GemColor;
+      readonly kind: 'chip';
     }
   | {
       readonly card: Card;
+      readonly face: 'back' | 'front';
       readonly kind: 'card';
-      readonly motion:
-        | 'purchase-reserved'
-        | 'purchase-visible'
-        | 'reserve-deck'
-        | 'reserve-visible';
       readonly tier: CardTier;
     }
   | {
       readonly kind: 'noble';
       readonly noble: Noble;
     };
-
-type SplendorCardAnimationObject = Extract<SplendorAnimationObject, { readonly kind: 'card' }>;
 
 const toGemRecord = (
   project: (color: GemColor) => number,
@@ -92,10 +100,6 @@ const toGemRecord = (
   black: project('black'),
   gold: project('gold'),
 });
-
-const score = (player: SplendorState['players'][number]): number =>
-  player.purchasedCards.reduce((sum, card) => sum + card.points, 0) +
-  player.nobles.reduce((sum, noble) => sum + noble.points, 0);
 
 const getActorPair = (
   previousGame: SplendorState,
@@ -112,6 +116,30 @@ const getActorPair = (
   return { nextActor, previousActor };
 };
 
+const cardFace = (card: Card): SplendorAnimationObject => ({
+  card,
+  face: 'front',
+  kind: 'card',
+  tier: card.tier,
+});
+
+const cardBack = (card: Card): SplendorAnimationObject => ({
+  card,
+  face: 'back',
+  kind: 'card',
+  tier: card.tier,
+});
+
+const chipObject = (color: GemColor): SplendorAnimationObject => ({
+  color,
+  kind: 'chip',
+});
+
+const nobleObject = (noble: Noble): SplendorAnimationObject => ({
+  kind: 'noble',
+  noble,
+});
+
 const createChipTransferPresentation = (
   previousGame: SplendorState,
   nextGame: SplendorState,
@@ -125,15 +153,23 @@ const createChipTransferPresentation = (
   const actorDeltaByColor = gemOrder.reduce<Record<GemColor, number>>((result, color) => {
     return {
       ...result,
-        [color]: nextActor.tokens[color] - previousActor.tokens[color],
-      };
-    }, {} as Record<GemColor, number>);
+      [color]: nextActor.tokens[color] - previousActor.tokens[color],
+    };
+  }, {} as Record<GemColor, number>);
 
   return {
     ...previousGame,
     bank: toGemRecord((color) => {
       const delta = actorDeltaByColor[color] ?? 0;
-      return delta > 0 ? previousGame.bank[color] : nextGame.bank[color];
+      if (delta > 0) {
+        return nextGame.bank[color];
+      }
+
+      if (delta < 0) {
+        return previousGame.bank[color];
+      }
+
+      return nextGame.bank[color];
     }),
     players: previousGame.players.map((player) =>
       player.identity.id !== previousActor.identity.id
@@ -228,6 +264,31 @@ const createReservedPurchaseDeparturePresentation = (
   };
 };
 
+const createVisibleMarketDeparturePresentation = (
+  previousGame: SplendorState,
+  nextGame: SplendorState,
+): SplendorState => {
+  const chipTransferGame = createChipTransferPresentation(previousGame, nextGame);
+
+  return {
+    ...chipTransferGame,
+    decks: nextGame.decks,
+    market: nextGame.market,
+  };
+};
+
+const createBlindReserveDeparturePresentation = (
+  previousGame: SplendorState,
+  nextGame: SplendorState,
+): SplendorState => {
+  const chipTransferGame = createChipTransferPresentation(previousGame, nextGame);
+
+  return {
+    ...chipTransferGame,
+    decks: nextGame.decks,
+  };
+};
+
 const changedMarketCardIds = (
   previousGame: SplendorState,
   nextGame: SplendorState,
@@ -238,6 +299,22 @@ const changedMarketCardIds = (
       .map((card) => card.id),
   );
 
+const changedMarketEntries = (
+  previousGame: SplendorState,
+  nextGame: SplendorState,
+): readonly {
+  readonly card: Card;
+  readonly index: number;
+  readonly tier: CardTier;
+}[] =>
+  cardTierOrder.flatMap((tier) =>
+    nextGame.market[`tier${tier}`].flatMap((card, index) =>
+      previousGame.market[`tier${tier}`][index]?.id !== card.id
+        ? [{ card, index, tier } as const]
+        : [],
+    ),
+  );
+
 const changedDeckTiers = (
   previousGame: SplendorState,
   nextGame: SplendorState,
@@ -246,43 +323,55 @@ const changedDeckTiers = (
     (tier) => previousGame.decks[`tier${tier}`].length !== nextGame.decks[`tier${tier}`].length,
   );
 
-const arrivalAnimations = (
+const delayedBulge = (target: string, delayMs: number): TargetEffectAnimation =>
+  targetEffect(target, [effectSequence([effectWait(delayMs), bulge(splendorAnimationTiming.bulgeDurationMs)])]);
+
+const delayedChipArrivalBulge = (target: string, arrivalMs: number): TargetEffectAnimation =>
+  delayedBulge(
+    target,
+    Math.max(arrivalMs - splendorAnimationTiming.chipImpactLeadMs, 0),
+  );
+
+const delayedHighlight = (target: string, delayMs: number, durationMs: number): TargetEffectAnimation =>
+  targetEffect(target, [effectSequence([effectWait(delayMs), highlight(durationMs)])]);
+
+const delayedFade = (target: string, delayMs: number, durationMs: number): TargetEffectAnimation =>
+  targetEffect(target, [effectSequence([effectWait(delayMs), fade(durationMs)])]);
+
+const delayedPulse = (target: string, delayMs: number, durationMs: number): TargetEffectAnimation =>
+  targetEffect(target, [effectSequence([effectWait(delayMs), pulseNumber(durationMs)])]);
+
+const delayedReveal = (target: string, delayMs: number, durationMs: number): TargetEffectAnimation =>
+  targetEffect(target, [effectSequence([effectWait(delayMs), reveal(durationMs)])]);
+
+const arrivalEffects = (
   previousGame: SplendorState,
   nextGame: SplendorState,
   actorId: string,
-  extra: readonly Animation<SplendorState, SplendorAnimationObject>[],
-): readonly Animation<SplendorState, SplendorAnimationObject>[] => [
+  delayMs: number,
+  extra: readonly TargetEffectAnimation[] = [],
+): readonly TargetEffectAnimation[] => [
   ...extra,
   ...changedMarketCardIds(previousGame, nextGame).map((cardId) =>
-    fade<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.marketCard(cardId), {
-      durationMs: splendorAnimationTiming.settleDurationMs,
-    }),
+    delayedReveal(splendorAnimationTargets.marketCard(cardId), delayMs, splendorAnimationTiming.bulgeDurationMs),
   ),
   ...changedDeckTiers(previousGame, nextGame).map((tier) =>
-    bulge<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.deck(tier), {
-      durationMs: splendorAnimationTiming.bulgeDurationMs,
-    }),
+    delayedBulge(splendorAnimationTargets.deck(tier), delayMs),
   ),
-  highlight<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerRow(actorId), {
-    durationMs: splendorAnimationTiming.settleDurationMs,
-  }),
+  delayedHighlight(
+    splendorAnimationTargets.playerRow(actorId),
+    delayMs,
+    splendorAnimationTiming.settleDurationMs,
+  ),
 ];
 
-const finalHandoff = (
-  finalState: SplendorState,
-): Animation<SplendorState, SplendorAnimationObject> =>
-  serial([
-    wait<SplendorState, SplendorAnimationObject>(splendorAnimationTiming.turnHandoffGapMs),
-    checkpoint<SplendorState, SplendorAnimationObject>(finalState),
-  ]);
-
-const chipFlights = (
+const chipOverlays = (
   previousGame: SplendorState,
   nextGame: SplendorState,
   options?: {
     readonly delayMs?: number;
   },
-): readonly Animation<SplendorState, SplendorAnimationObject>[] => {
+): readonly ReturnType<typeof overlay<SplendorAnimationObject>>[] => {
   const { nextActor, previousActor } = getActorPair(previousGame, nextGame);
 
   if (!previousActor || !nextActor) {
@@ -297,33 +386,76 @@ const chipFlights = (
       return [];
     }
 
-    return Array.from({ length: count }, () =>
-      translate<SplendorState, SplendorAnimationObject>(
-        { color, kind: 'chip' },
-        delta > 0
-          ? splendorAnimationTargets.bankChip(color)
-          : splendorAnimationTargets.playerChip(previousActor.identity.id, color),
-        delta > 0
-          ? splendorAnimationTargets.playerChip(previousActor.identity.id, color)
-          : splendorAnimationTargets.bankChip(color),
-        {
-          ...(options?.delayMs !== undefined ? { delayMs: options.delayMs } : {}),
-          durationMs: splendorAnimationTiming.flightDurationMs,
-        },
-      ),
+    const fromTarget =
+      delta > 0
+        ? splendorAnimationTargets.bankChip(color)
+        : splendorAnimationTargets.playerChip(previousActor.identity.id, color);
+    const toTarget =
+      delta > 0
+        ? splendorAnimationTargets.playerChip(previousActor.identity.id, color)
+        : splendorAnimationTargets.bankChip(color);
+
+    return Array.from({ length: count }, (_, index) =>
+      overlay<SplendorAnimationObject>({
+        id: `chip:${previousActor.identity.id}:${color}:${delta > 0 ? 'take' : 'return'}:${index}`,
+        mount: clone(fromTarget),
+        object: chipObject(color),
+        steps: [
+          sequence([
+            ...(options?.delayMs !== undefined ? [wait<SplendorAnimationObject>(options.delayMs)] : []),
+            to(toTarget, {
+              durationMs: splendorAnimationTiming.flightDurationMs,
+              easing: 'flight',
+            }),
+          ]),
+        ],
+        unmount: removeAtEnd(),
+      }),
     );
   });
 };
 
-const purchaseCardObject = (
-  card: Card,
-  motion: SplendorCardAnimationObject['motion'],
-): SplendorCardAnimationObject => ({
-  card,
-  kind: 'card',
-  motion,
-  tier: card.tier,
-});
+const marketRevealOverlays = (
+  previousGame: SplendorState,
+  nextGame: SplendorState,
+  delayMs: number,
+): readonly ReturnType<typeof overlay<SplendorAnimationObject>>[] => {
+  const revealDurationMs = splendorAnimationTiming.bulgeDurationMs;
+  const holdUntilSourceClearsMs = Math.max(
+    splendorAnimationTiming.flightDurationMs - delayMs - revealDurationMs,
+    0,
+  );
+
+  return changedMarketEntries(previousGame, nextGame).map(({ card, index, tier }) =>
+    overlay<SplendorAnimationObject>({
+      id: `card:market-reveal:${card.id}`,
+      initialPose: {
+        opacity: 0,
+        scale: 0.01,
+      },
+      mount: detached(splendorAnimationTargets.marketSlot(tier, index)),
+      object: cardFace(card),
+      steps: [
+        sequence([
+          wait(delayMs),
+          to('self', {
+            durationMs: splendorAnimationTiming.bulgeDurationMs - 80,
+            opacity: 1,
+            scale: 1.06,
+          }),
+          to('self', {
+            durationMs: 80,
+            opacity: 1,
+            scale: 1,
+          }),
+          hold(holdUntilSourceClearsMs),
+          fadeTo(0, { durationMs: 40 }),
+        ]),
+      ],
+      unmount: removeAtEnd(),
+    }),
+  );
+};
 
 const deriveTransitionKind = (
   previousGame: SplendorState,
@@ -404,24 +536,24 @@ const animateChipTake = (
     .filter((color) => nextActor.tokens[color] > previousActor.tokens[color])
     .map((color) => splendorAnimationTargets.playerChip(nextActor.identity.id, color));
 
-  return serial([
-    checkpoint(departure),
-    parallel([
-      ...sourceTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+  return animation({
+    checkpoints: [
+      checkpoint(0, departure),
+      checkpoint(splendorAnimationTiming.flightDurationMs, arrival),
+      checkpoint(
+        splendorAnimationTiming.flightDurationMs + splendorAnimationTiming.turnHandoffGapMs,
+        nextGame,
       ),
-      ...chipFlights(previousGame, nextGame),
-    ]),
-    checkpoint(arrival),
-    parallel(arrivalAnimations(previousGame, nextGame, nextActor.identity.id, destinationTargets.map((target) =>
-      bulge<SplendorState, SplendorAnimationObject>(target, {
-        durationMs: splendorAnimationTiming.bulgeDurationMs,
-      }),
-    ))),
-    finalHandoff(nextGame),
-  ]);
+    ],
+    effects: [
+      ...sourceTargets.map((target) => targetEffect(target, [bulge(splendorAnimationTiming.bulgeDurationMs)])),
+      ...destinationTargets.map((target) =>
+        delayedChipArrivalBulge(target, splendorAnimationTiming.flightDurationMs),
+      ),
+      ...arrivalEffects(previousGame, nextGame, nextActor.identity.id, splendorAnimationTiming.flightDurationMs),
+    ],
+    overlays: chipOverlays(previousGame, nextGame),
+  });
 };
 
 const animateDiscard = (
@@ -443,24 +575,24 @@ const animateDiscard = (
     .filter((color) => nextActor.tokens[color] < previousActor.tokens[color])
     .map((color) => splendorAnimationTargets.bankChip(color));
 
-  return serial([
-    checkpoint(departure),
-    parallel([
-      ...sourceTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+  return animation({
+    checkpoints: [
+      checkpoint(0, departure),
+      checkpoint(splendorAnimationTiming.flightDurationMs, arrival),
+      checkpoint(
+        splendorAnimationTiming.flightDurationMs + splendorAnimationTiming.turnHandoffGapMs,
+        nextGame,
       ),
-      ...chipFlights(previousGame, nextGame),
-    ]),
-    checkpoint(arrival),
-    parallel(arrivalAnimations(previousGame, nextGame, previousActor.identity.id, bankTargets.map((target) =>
-      bulge<SplendorState, SplendorAnimationObject>(target, {
-        durationMs: splendorAnimationTiming.bulgeDurationMs,
-      }),
-    ))),
-    finalHandoff(nextGame),
-  ]);
+    ],
+    effects: [
+      ...sourceTargets.map((target) => targetEffect(target, [bulge(splendorAnimationTiming.bulgeDurationMs)])),
+      ...bankTargets.map((target) =>
+        delayedChipArrivalBulge(target, splendorAnimationTiming.flightDurationMs),
+      ),
+      ...arrivalEffects(previousGame, nextGame, previousActor.identity.id, splendorAnimationTiming.flightDurationMs),
+    ],
+    overlays: chipOverlays(previousGame, nextGame),
+  });
 };
 
 const animateReserveVisible = (
@@ -468,7 +600,6 @@ const animateReserveVisible = (
   nextGame: SplendorState,
 ): Animation<SplendorState, SplendorAnimationObject> | null => {
   const departure = createChipTransferPresentation(previousGame, nextGame);
-  const chipArrival = createChipArrivalPresentation(departure, nextGame);
   const arrival = createPostFlightPresentation(previousGame, nextGame);
   const { nextActor, previousActor } = getActorPair(previousGame, nextGame);
 
@@ -490,83 +621,86 @@ const animateReserveVisible = (
   const destinationChipTargets = gemOrder
     .filter((color) => nextActor.tokens[color] > previousActor.tokens[color])
     .map((color) => splendorAnimationTargets.playerChip(nextActor.identity.id, color));
+  const cardId = `card:reserve-visible:${reservedCard.id}`;
+  const reserveRevealStartMs =
+    splendorAnimationTiming.flightDurationMs - splendorAnimationTiming.cardHoldReserveRevealLeadMs;
 
-  return serial([
-    checkpoint(departure),
-    parallel([
-      ...sourceBankTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+  return animation({
+    checkpoints: [
+      checkpoint(0, departure),
+      checkpoint(splendorAnimationTiming.flightDurationMs, arrival),
+      checkpoint(
+        splendorAnimationTiming.flightDurationMs +
+          splendorAnimationTiming.cardHoldReserveVisibleMs +
+          splendorAnimationTiming.flipDurationMs +
+          splendorAnimationTiming.cardArrivalDurationMs +
+          splendorAnimationTiming.cardHoldReserveCompleteMs +
+          splendorAnimationTiming.turnHandoffGapMs,
+        nextGame,
       ),
-      ...chipFlights(previousGame, nextGame),
-      fade<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.marketCard(reservedCard.id), {
-        durationMs: splendorAnimationTiming.flightDurationMs + (sourceBankTargets.length > 0 ? 250 : 0),
-      }),
-      translate(
-        purchaseCardObject(reservedCard, 'reserve-visible'),
-        splendorAnimationTargets.marketCard(reservedCard.id),
-        splendorAnimationTargets.playerReserved(nextActor.identity.id),
-        { durationMs: splendorAnimationTiming.flightDurationMs },
-      ),
-    ]),
-    checkpoint(chipArrival),
-    parallel([
+    ],
+    effects: [
+      ...sourceBankTargets.map((target) => targetEffect(target, [bulge(splendorAnimationTiming.bulgeDurationMs)])),
       ...destinationChipTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+        delayedChipArrivalBulge(target, splendorAnimationTiming.flightDurationMs),
       ),
-      hold(
-        purchaseCardObject(reservedCard, 'reserve-visible'),
+      delayedBulge(
         splendorAnimationTargets.playerReserved(nextActor.identity.id),
-        { durationMs: splendorAnimationTiming.cardHoldReserveVisibleMs },
+        reserveRevealStartMs,
       ),
-      fade<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.marketCard(reservedCard.id), {
-        durationMs: splendorAnimationTiming.cardHoldReserveVisibleMs,
-      }),
-    ]),
-    parallel([
-      flip(
-        purchaseCardObject(reservedCard, 'reserve-visible'),
-        splendorAnimationTargets.playerReserved(nextActor.identity.id),
-        { durationMs: splendorAnimationTiming.flipDurationMs },
+      ...arrivalEffects(
+        previousGame,
+        nextGame,
+        nextActor.identity.id,
+        reserveRevealStartMs,
       ),
-      fade<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.marketCard(reservedCard.id), {
-        durationMs: splendorAnimationTiming.flipDurationMs,
+    ],
+    overlays: [
+      ...chipOverlays(previousGame, nextGame),
+      ...marketRevealOverlays(previousGame, nextGame, reserveRevealStartMs),
+      overlay({
+        id: cardId,
+        mount: clone(splendorAnimationTargets.marketCard(reservedCard.id)),
+        object: cardFace(reservedCard),
+        steps: [
+          sequence([
+            to(splendorAnimationTargets.playerReserved(nextActor.identity.id), {
+              durationMs: splendorAnimationTiming.flightDurationMs,
+              easing: 'flight',
+              rotate: -4,
+              scale: 0.76,
+            }),
+            hold(splendorAnimationTiming.cardHoldReserveVisibleMs),
+            flipTo(cardBack(reservedCard), {
+              axis: 'y',
+              durationMs: splendorAnimationTiming.flipDurationMs,
+            }),
+            to('self', {
+              durationMs: splendorAnimationTiming.cardArrivalDurationMs,
+              rotate: 0,
+              scale: 1,
+              y: 0,
+            }),
+            fadeTo(0, {
+              durationMs: splendorAnimationTiming.cardHoldReserveCompleteMs,
+              rotate: -4,
+              scale: 0.24,
+              x: 42,
+              y: -6,
+            }),
+          ]),
+        ],
+        unmount: removeAtEnd(),
       }),
-    ]),
-    parallel([
-      land(
-        purchaseCardObject(reservedCard, 'reserve-visible'),
-        splendorAnimationTargets.playerReserved(nextActor.identity.id),
-        { durationMs: splendorAnimationTiming.cardArrivalDurationMs },
-      ),
-      fade<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.marketCard(reservedCard.id), {
-        durationMs: splendorAnimationTiming.cardArrivalDurationMs,
-      }),
-    ]),
-    checkpoint(arrival),
-    parallel(
-      arrivalAnimations(previousGame, nextGame, nextActor.identity.id, [
-        bulge<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerReserved(nextActor.identity.id), {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
-        fade<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.marketCard(reservedCard.id), {
-          durationMs: splendorAnimationTiming.settleDurationMs,
-        }),
-      ]),
-    ),
-    finalHandoff(nextGame),
-  ]);
+    ],
+  });
 };
 
 const animateBlindReserve = (
   previousGame: SplendorState,
   nextGame: SplendorState,
 ): Animation<SplendorState, SplendorAnimationObject> | null => {
-  const departure = createChipTransferPresentation(previousGame, nextGame);
-  const chipArrival = createChipArrivalPresentation(departure, nextGame);
+  const departure = createBlindReserveDeparturePresentation(previousGame, nextGame);
   const arrival = createPostFlightPresentation(previousGame, nextGame);
   const { nextActor, previousActor } = getActorPair(previousGame, nextGame);
 
@@ -589,58 +723,77 @@ const animateBlindReserve = (
     .filter((color) => nextActor.tokens[color] > previousActor.tokens[color])
     .map((color) => splendorAnimationTargets.playerChip(nextActor.identity.id, color));
 
-  return serial([
-    checkpoint(departure),
-    parallel([
-      ...sourceBankTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+  return animation({
+    checkpoints: [
+      checkpoint(0, departure),
+      checkpoint(splendorAnimationTiming.flightDurationMs, arrival),
+      checkpoint(
+        splendorAnimationTiming.flightDurationMs +
+          splendorAnimationTiming.bulgeDurationMs +
+          splendorAnimationTiming.cardArrivalDurationMs +
+          splendorAnimationTiming.cardHoldReserveCompleteMs +
+          splendorAnimationTiming.turnHandoffGapMs,
+        nextGame,
       ),
-      ...chipFlights(previousGame, nextGame),
-      translate(
-        purchaseCardObject(reservedCard, 'reserve-deck'),
-        splendorAnimationTargets.deck(reservedCard.tier),
-        splendorAnimationTargets.playerReserved(nextActor.identity.id),
-        { durationMs: splendorAnimationTiming.flightDurationMs },
-      ),
-    ]),
-    checkpoint(chipArrival),
-    parallel([
+    ],
+    effects: [
+      ...sourceBankTargets.map((target) => targetEffect(target, [bulge(splendorAnimationTiming.bulgeDurationMs)])),
       ...destinationChipTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+        delayedChipArrivalBulge(target, splendorAnimationTiming.flightDurationMs),
       ),
-      hold(
-        purchaseCardObject(reservedCard, 'reserve-deck'),
+      delayedBulge(
         splendorAnimationTargets.playerReserved(nextActor.identity.id),
-        { durationMs: splendorAnimationTiming.bulgeDurationMs },
+        splendorAnimationTiming.flightDurationMs + splendorAnimationTiming.bulgeDurationMs,
       ),
-    ]),
-    land(
-      purchaseCardObject(reservedCard, 'reserve-deck'),
-      splendorAnimationTargets.playerReserved(nextActor.identity.id),
-      { durationMs: splendorAnimationTiming.cardArrivalDurationMs },
-    ),
-    checkpoint(arrival),
-    parallel(
-      arrivalAnimations(previousGame, nextGame, nextActor.identity.id, [
-        bulge<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerReserved(nextActor.identity.id), {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
-      ]),
-    ),
-    finalHandoff(nextGame),
-  ]);
+      ...arrivalEffects(
+        previousGame,
+        nextGame,
+        nextActor.identity.id,
+        splendorAnimationTiming.flightDurationMs + splendorAnimationTiming.bulgeDurationMs,
+      ),
+    ],
+    overlays: [
+      ...chipOverlays(previousGame, nextGame),
+      overlay({
+        id: `card:reserve-deck:${reservedCard.id}`,
+        mount: clone(splendorAnimationTargets.deck(reservedCard.tier)),
+        object: cardBack(reservedCard),
+        steps: [
+          sequence([
+            to(splendorAnimationTargets.playerReserved(nextActor.identity.id), {
+              durationMs: splendorAnimationTiming.flightDurationMs,
+              easing: 'flight',
+              rotate: -4,
+              scale: 0.76,
+            }),
+            hold(splendorAnimationTiming.bulgeDurationMs),
+            to('self', {
+              durationMs: splendorAnimationTiming.cardArrivalDurationMs,
+              rotate: 0,
+              scale: 1,
+              y: 0,
+            }),
+            fadeTo(0, {
+              durationMs: splendorAnimationTiming.cardHoldReserveCompleteMs,
+              rotate: -4,
+              scale: 0.24,
+              x: 42,
+              y: -6,
+            }),
+          ]),
+        ],
+        unmount: removeAtEnd(),
+      }),
+    ],
+  });
 };
 
 const animateMarketPurchase = (
   previousGame: SplendorState,
   nextGame: SplendorState,
 ): Animation<SplendorState, SplendorAnimationObject> | null => {
-  const departure = createChipTransferPresentation(previousGame, nextGame);
-  const chipArrival = createChipArrivalPresentation(departure, nextGame);
+  const departure = createVisibleMarketDeparturePresentation(previousGame, nextGame);
+  const arrival = createPostFlightPresentation(previousGame, nextGame);
   const { nextActor, previousActor } = getActorPair(previousGame, nextGame);
 
   if (!previousActor || !nextActor) {
@@ -661,70 +814,84 @@ const animateMarketPurchase = (
   const bankTargets = gemOrder
     .filter((color) => nextActor.tokens[color] < previousActor.tokens[color])
     .map((color) => splendorAnimationTargets.bankChip(color));
+  const cardStartDelay = splendorAnimationTiming.purchaseCardStaggerMs;
+  const settleStartMs =
+    cardStartDelay +
+    splendorAnimationTiming.flightDurationMs +
+    splendorAnimationTiming.bulgeDurationMs;
 
-  return serial([
-    checkpoint(departure),
-    parallel([
-      ...sourcePlayerChipTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+  return animation({
+    checkpoints: [
+      checkpoint(0, departure),
+      checkpoint(cardStartDelay + splendorAnimationTiming.flightDurationMs, arrival),
+      checkpoint(
+        settleStartMs +
+          splendorAnimationTiming.cardArrivalDurationMs +
+          splendorAnimationTiming.cardHoldReserveCompleteMs +
+          splendorAnimationTiming.turnHandoffGapMs,
+        nextGame,
       ),
-      ...chipFlights(previousGame, nextGame),
-      fade<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.marketCard(purchasedCard.id), {
-        durationMs: splendorAnimationTiming.flightDurationMs + splendorAnimationTiming.purchaseCardStaggerMs,
-      }),
-      translate(
-        purchaseCardObject(purchasedCard, 'purchase-visible'),
-        splendorAnimationTargets.marketCard(purchasedCard.id),
-        splendorAnimationTargets.playerTableau(nextActor.identity.id),
-        {
-          delayMs: splendorAnimationTiming.purchaseCardStaggerMs,
-          durationMs: splendorAnimationTiming.flightDurationMs,
-        },
-      ),
-    ]),
-    checkpoint(chipArrival),
-    parallel([
+    ],
+    effects: [
+      ...sourcePlayerChipTargets.map((target) => targetEffect(target, [bulge(splendorAnimationTiming.bulgeDurationMs)])),
       ...bankTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+        delayedChipArrivalBulge(target, cardStartDelay + splendorAnimationTiming.flightDurationMs),
       ),
-      hold(
-        purchaseCardObject(purchasedCard, 'purchase-visible'),
+      delayedBulge(
         splendorAnimationTargets.playerTableau(nextActor.identity.id),
-        { durationMs: splendorAnimationTiming.cardHoldPurchaseVisibleMs },
+        settleStartMs,
       ),
-      fade<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.marketCard(purchasedCard.id), {
-        durationMs: splendorAnimationTiming.cardHoldPurchaseVisibleMs,
+      delayedBulge(
+        splendorAnimationTargets.playerTableauBonus(nextActor.identity.id, purchasedCard.bonus),
+        settleStartMs,
+      ),
+      delayedPulse(
+        splendorAnimationTargets.playerScore(nextActor.identity.id),
+        settleStartMs,
+        splendorAnimationTiming.settleDurationMs,
+      ),
+      ...arrivalEffects(
+        previousGame,
+        nextGame,
+        nextActor.identity.id,
+        settleStartMs,
+      ),
+    ],
+    overlays: [
+      ...chipOverlays(previousGame, nextGame),
+      overlay({
+        id: `card:purchase-visible:${purchasedCard.id}`,
+        mount: clone(splendorAnimationTargets.marketCard(purchasedCard.id)),
+        object: cardFace(purchasedCard),
+        steps: [
+          sequence([
+            wait(cardStartDelay),
+            to(splendorAnimationTargets.playerTableau(nextActor.identity.id), {
+              durationMs: splendorAnimationTiming.flightDurationMs,
+              easing: 'flight',
+              rotate: -4,
+              scale: 0.76,
+            }),
+            hold(splendorAnimationTiming.bulgeDurationMs),
+            to('self', {
+              durationMs: splendorAnimationTiming.cardArrivalDurationMs,
+              rotate: 0,
+              scale: 1,
+              y: 0,
+            }),
+            fadeTo(0, {
+              durationMs: splendorAnimationTiming.cardHoldReserveCompleteMs,
+              rotate: -4,
+              scale: 0.24,
+              x: 42,
+              y: -6,
+            }),
+          ]),
+        ],
+        unmount: removeAtEnd(),
       }),
-    ]),
-    parallel(
-      arrivalAnimations(previousGame, nextGame, nextActor.identity.id, [
-        land(
-          purchaseCardObject(purchasedCard, 'purchase-visible'),
-          splendorAnimationTargets.playerTableau(nextActor.identity.id),
-          { durationMs: splendorAnimationTiming.settleDurationMs },
-        ),
-        bulge<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerTableau(nextActor.identity.id), {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
-        bulge<SplendorState, SplendorAnimationObject>(
-          splendorAnimationTargets.playerTableauBonus(nextActor.identity.id, purchasedCard.bonus),
-          { durationMs: splendorAnimationTiming.bulgeDurationMs },
-        ),
-        pulseNumber<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerScore(nextActor.identity.id), {
-          durationMs: splendorAnimationTiming.settleDurationMs,
-        }),
-        fade<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.marketCard(purchasedCard.id), {
-          durationMs: splendorAnimationTiming.settleDurationMs,
-        }),
-      ]),
-    ),
-    checkpoint(chipArrival),
-    finalHandoff(nextGame),
-  ]);
+    ],
+  });
 };
 
 const animatePurchaseReserved = (
@@ -755,88 +922,98 @@ const animatePurchaseReserved = (
   const bankTargets = gemOrder
     .filter((color) => nextActor.tokens[color] < previousActor.tokens[color])
     .map((color) => splendorAnimationTargets.bankChip(color));
-  const cardObject = purchaseCardObject(purchasedCard, 'purchase-reserved');
+  const moveStart =
+    splendorAnimationTiming.cardExpandDurationMs +
+    splendorAnimationTiming.flipDurationMs +
+    splendorAnimationTiming.cardHoldPurchaseReservedMs;
+  const bankArrival =
+    moveStart +
+    splendorAnimationTiming.purchaseReservedChipDelayMs +
+    splendorAnimationTiming.flightDurationMs;
+  const cardArrival = moveStart + splendorAnimationTiming.flightDurationMs;
+  const settleStart = Math.max(bankArrival, cardArrival);
 
-  return serial<SplendorState, SplendorAnimationObject>([
-    checkpoint<SplendorState, SplendorAnimationObject>(cardDeparture),
-    expand(cardObject, splendorAnimationTargets.playerReserved(nextActor.identity.id), {
-      durationMs: splendorAnimationTiming.cardExpandDurationMs,
-    }),
-    flip(cardObject, splendorAnimationTargets.playerReserved(nextActor.identity.id), {
-      durationMs: splendorAnimationTiming.flipDurationMs,
-    }),
-    hold(cardObject, splendorAnimationTargets.playerReserved(nextActor.identity.id), {
-      durationMs: splendorAnimationTiming.cardHoldPurchaseReservedMs,
-    }),
-    checkpoint<SplendorState, SplendorAnimationObject>(departure),
-    parallel([
-      ...sourcePlayerChipTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+  return animation({
+    checkpoints: [
+      checkpoint(0, cardDeparture),
+      checkpoint(moveStart, departure),
+      checkpoint(settleStart, bankTargets.length > 0 ? chipArrival : arrival),
+      checkpoint(settleStart + splendorAnimationTiming.settleDurationMs, arrival),
+      checkpoint(
+        settleStart +
+          splendorAnimationTiming.settleDurationMs +
+          splendorAnimationTiming.cardHoldReserveCompleteMs +
+          splendorAnimationTiming.turnHandoffGapMs,
+        nextGame,
       ),
-      ...chipFlights(previousGame, nextGame, {
-        delayMs: splendorAnimationTiming.purchaseReservedChipDelayMs,
-      }),
-      translate(
-        cardObject,
-        splendorAnimationTargets.playerReserved(nextActor.identity.id),
-        splendorAnimationTargets.playerTableau(nextActor.identity.id),
-        { durationMs: splendorAnimationTiming.flightDurationMs },
-      ),
-    ]),
-    checkpoint(bankTargets.length > 0 ? chipArrival : arrival),
-    parallel([
+    ],
+    effects: [
+      ...sourcePlayerChipTargets.map((target) => targetEffect(target, [effectSequence([effectWait(moveStart), bulge(splendorAnimationTiming.bulgeDurationMs)])])),
       ...bankTargets.map((target) =>
-        bulge<SplendorState, SplendorAnimationObject>(target, {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
+        delayedChipArrivalBulge(target, bankArrival),
       ),
-      hold(cardObject, splendorAnimationTargets.playerTableau(nextActor.identity.id), {
-        durationMs: bankTargets.length > 0 ? splendorAnimationTiming.bulgeDurationMs : splendorAnimationTiming.settleDurationMs,
+      delayedBulge(
+        splendorAnimationTargets.playerTableau(nextActor.identity.id),
+        settleStart,
+      ),
+      delayedBulge(
+        splendorAnimationTargets.playerTableauBonus(nextActor.identity.id, purchasedCard.bonus),
+        settleStart,
+      ),
+      delayedPulse(
+        splendorAnimationTargets.playerScore(nextActor.identity.id),
+        settleStart,
+        splendorAnimationTiming.settleDurationMs,
+      ),
+      ...arrivalEffects(previousGame, nextGame, nextActor.identity.id, settleStart),
+    ],
+    overlays: [
+      ...chipOverlays(previousGame, nextGame, {
+        delayMs: moveStart + splendorAnimationTiming.purchaseReservedChipDelayMs,
       }),
-      ...(bankTargets.length === 0
-        ? arrivalAnimations(previousGame, nextGame, nextActor.identity.id, [
-            land(cardObject, splendorAnimationTargets.playerTableau(nextActor.identity.id), {
+      overlay({
+        id: `card:purchase-reserved:${purchasedCard.id}`,
+        mount: clone(splendorAnimationTargets.playerReserved(nextActor.identity.id)),
+        object: cardBack(purchasedCard),
+        steps: [
+          sequence([
+            to('self', {
+              durationMs: splendorAnimationTiming.cardExpandDurationMs,
+              rotate: 0,
+              scale: 1,
+              y: -8,
+            }),
+            flipTo(cardFace(purchasedCard), {
+              axis: 'y',
+              durationMs: splendorAnimationTiming.flipDurationMs,
+            }),
+            hold(splendorAnimationTiming.cardHoldPurchaseReservedMs),
+            to(splendorAnimationTargets.playerTableau(nextActor.identity.id), {
+              durationMs: splendorAnimationTiming.flightDurationMs,
+              easing: 'flight',
+              rotate: -4,
+              scale: 0.76,
+            }),
+            hold(Math.max(bankArrival - cardArrival, 0)),
+            to('self', {
               durationMs: splendorAnimationTiming.settleDurationMs,
+              rotate: 0,
+              scale: 1,
+              y: 0,
             }),
-            bulge<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerTableau(nextActor.identity.id), {
-              durationMs: splendorAnimationTiming.bulgeDurationMs,
+            fadeTo(0, {
+              durationMs: splendorAnimationTiming.cardHoldReserveCompleteMs,
+              rotate: -4,
+              scale: 0.24,
+              x: 42,
+              y: -6,
             }),
-            bulge<SplendorState, SplendorAnimationObject>(
-              splendorAnimationTargets.playerTableauBonus(nextActor.identity.id, purchasedCard.bonus),
-              { durationMs: splendorAnimationTiming.bulgeDurationMs },
-            ),
-            pulseNumber<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerScore(nextActor.identity.id), {
-              durationMs: splendorAnimationTiming.settleDurationMs,
-            }),
-          ])
-        : []),
-    ]),
-    ...(bankTargets.length > 0
-      ? [
-          checkpoint<SplendorState, SplendorAnimationObject>(arrival),
-          parallel(
-            arrivalAnimations(previousGame, nextGame, nextActor.identity.id, [
-              land(cardObject, splendorAnimationTargets.playerTableau(nextActor.identity.id), {
-                durationMs: splendorAnimationTiming.settleDurationMs,
-              }),
-              bulge<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerTableau(nextActor.identity.id), {
-                durationMs: splendorAnimationTiming.bulgeDurationMs,
-              }),
-              bulge<SplendorState, SplendorAnimationObject>(
-                splendorAnimationTargets.playerTableauBonus(nextActor.identity.id, purchasedCard.bonus),
-                { durationMs: splendorAnimationTiming.bulgeDurationMs },
-              ),
-              pulseNumber<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerScore(nextActor.identity.id), {
-                durationMs: splendorAnimationTiming.settleDurationMs,
-              }),
-            ]),
-          ),
-        ]
-      : []),
-    finalHandoff(nextGame),
-  ]);
+          ]),
+        ],
+        unmount: removeAtEnd(),
+      }),
+    ],
+  });
 };
 
 const animateNobleClaim = (
@@ -858,38 +1035,59 @@ const animateNobleClaim = (
     return null;
   }
 
-  return serial([
-    checkpoint(previousGame),
-    translate<SplendorState, SplendorAnimationObject>(
-      { kind: 'noble', noble },
-      splendorAnimationTargets.viewportNobleOrigin(),
-      splendorAnimationTargets.playerNobles(nextActor.identity.id),
-      { durationMs: splendorAnimationTiming.flightDurationMs },
-    ),
-    checkpoint(arrival),
-    parallel(
-      arrivalAnimations(previousGame, nextGame, nextActor.identity.id, [
-        bulge<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerNobles(nextActor.identity.id), {
-          durationMs: splendorAnimationTiming.bulgeDurationMs,
-        }),
-        pulseNumber<SplendorState, SplendorAnimationObject>(splendorAnimationTargets.playerScore(nextActor.identity.id), {
-          durationMs: splendorAnimationTiming.settleDurationMs,
-        }),
-      ]),
-    ),
-    finalHandoff(nextGame),
-  ]);
+  return animation({
+    checkpoints: [
+      checkpoint(0, previousGame),
+      checkpoint(splendorAnimationTiming.flightDurationMs, arrival),
+      checkpoint(
+        splendorAnimationTiming.flightDurationMs +
+          splendorAnimationTiming.settleDurationMs +
+          splendorAnimationTiming.turnHandoffGapMs,
+        nextGame,
+      ),
+    ],
+    effects: [
+      delayedBulge(
+        splendorAnimationTargets.playerNobles(nextActor.identity.id),
+        splendorAnimationTiming.flightDurationMs,
+      ),
+      delayedPulse(
+        splendorAnimationTargets.playerScore(nextActor.identity.id),
+        splendorAnimationTiming.flightDurationMs,
+        splendorAnimationTiming.settleDurationMs,
+      ),
+      ...arrivalEffects(previousGame, nextGame, nextActor.identity.id, splendorAnimationTiming.flightDurationMs),
+    ],
+    overlays: [
+      overlay({
+        id: `noble:${noble.id}`,
+        mount: detached(splendorAnimationTargets.viewportNobleOrigin()),
+        object: nobleObject(noble),
+        steps: [
+          sequence([
+            to(splendorAnimationTargets.playerNobles(nextActor.identity.id), {
+              durationMs: splendorAnimationTiming.flightDurationMs,
+              easing: 'flight',
+              scale: 0.94,
+            }),
+          ]),
+        ],
+        unmount: removeAtEnd(),
+      }),
+    ],
+  });
 };
 
 const animateNobleSkip = (
   previousGame: SplendorState,
   nextGame: SplendorState,
 ): Animation<SplendorState, SplendorAnimationObject> =>
-  serial<SplendorState, SplendorAnimationObject>([
-    checkpoint<SplendorState, SplendorAnimationObject>(previousGame),
-    wait<SplendorState, SplendorAnimationObject>(splendorAnimationTiming.turnHandoffGapMs),
-    checkpoint<SplendorState, SplendorAnimationObject>(nextGame),
-  ]);
+  animation({
+    checkpoints: [
+      checkpoint(0, previousGame),
+      checkpoint(splendorAnimationTiming.turnHandoffGapMs, nextGame),
+    ],
+  });
 
 export const animateTransition = (
   move: SplendorMove | null | undefined,
