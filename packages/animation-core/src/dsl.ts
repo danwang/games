@@ -1,28 +1,31 @@
 import {
+  type ActorAnimation,
+  type ActorMount,
+  type ActorUnmount,
   type Animation,
   type Checkpoint,
-  type OverlayAnimation,
-  type OverlayMount,
-  type OverlayStep,
-  type OverlayUnmount,
+  type FaceTrackStep,
+  type PathTrackStep,
+  type PathValue,
   type Point,
   type TargetEffectAnimation,
   type TargetEffectStep,
   type TargetRef,
+  type ValueTrackStep,
 } from './types.js';
 
 export const animation = <TSnapshot, TObject>({
+  actors = [],
   checkpoints = [],
   effects = [],
-  overlays = [],
 }: {
+  readonly actors?: readonly ActorAnimation<TObject>[];
   readonly checkpoints?: readonly Checkpoint<TSnapshot>[];
   readonly effects?: readonly TargetEffectAnimation[];
-  readonly overlays?: readonly OverlayAnimation<TObject>[];
 }): Animation<TSnapshot, TObject> => ({
+  actors,
   checkpoints,
   effects,
-  overlays,
 });
 
 export const checkpoint = <TSnapshot>(atMs: number, snapshot: TSnapshot): Checkpoint<TSnapshot> => ({
@@ -30,68 +33,96 @@ export const checkpoint = <TSnapshot>(atMs: number, snapshot: TSnapshot): Checkp
   snapshot,
 });
 
-export const clone = (from: TargetRef): OverlayMount => ({
+export const clone = (from: TargetRef): ActorMount => ({
   from,
   kind: 'clone',
 });
 
-export const detached = (at: Point | TargetRef): OverlayMount => ({
+export const detached = (at: Point | TargetRef): ActorMount => ({
   at,
   kind: 'detached',
 });
 
-export const removeAtEnd = (): OverlayUnmount => ({
+export const removeAtEnd = (): ActorUnmount => ({
   at: 'end',
   kind: 'remove',
 });
 
-export const overlay = <TObject>(config: OverlayAnimation<TObject>): OverlayAnimation<TObject> => config;
+export const actor = <TObject>(config: ActorAnimation<TObject>): ActorAnimation<TObject> => config;
 
-export const to = <TObject>(
+export const moveTo = (
   destination: TargetRef | 'self',
-  options: Omit<Extract<OverlayStep<TObject>, { readonly type: 'to' }>, 'to' | 'type'>,
-): OverlayStep<TObject> => ({
+  options: Omit<Extract<PathTrackStep, { readonly type: 'move' }>, 'to' | 'type'> & {
+    readonly x?: number;
+    readonly y?: number;
+  },
+): PathTrackStep => ({
   ...options,
-  to: destination,
-  type: 'to',
+  to: {
+    target: destination,
+    ...(options.x !== undefined ? { x: options.x } : {}),
+    ...(options.y !== undefined ? { y: options.y } : {}),
+  },
+  type: 'move',
 });
 
-export const hold = <TObject>(durationMs: number): OverlayStep<TObject> => ({
-  durationMs,
-  type: 'hold',
-});
-
-export const flipTo = <TObject>(
-  object: TObject,
-  options: Omit<Extract<OverlayStep<TObject>, { readonly type: 'flipTo' }>, 'object' | 'type'>,
-): OverlayStep<TObject> => ({
+export const moveToPoint = (
+  point: Point,
+  options: Omit<Extract<PathTrackStep, { readonly type: 'move' }>, 'to' | 'type'> & {
+    readonly x?: number;
+    readonly y?: number;
+  },
+): PathTrackStep => ({
   ...options,
-  object,
-  type: 'flipTo',
+  to: {
+    left: point.left,
+    top: point.top,
+    type: 'point',
+    ...(options.x !== undefined ? { x: options.x } : {}),
+    ...(options.y !== undefined ? { y: options.y } : {}),
+  } satisfies PathValue,
+  type: 'move',
 });
 
-export const fadeTo = <TObject>(
-  opacity: number,
-  options: Omit<Extract<OverlayStep<TObject>, { readonly type: 'fadeTo' }>, 'opacity' | 'type'>,
-): OverlayStep<TObject> => ({
-  ...options,
-  opacity,
-  type: 'fadeTo',
-});
-
-export const wait = <TObject>(durationMs: number): OverlayStep<TObject> => ({
+export const trackWait = (durationMs: number): PathTrackStep & ValueTrackStep & FaceTrackStep<never> => ({
   durationMs,
   type: 'wait',
 });
 
-export const sequence = <TObject>(steps: readonly OverlayStep<TObject>[]): OverlayStep<TObject> => ({
-  steps,
-  type: 'sequence',
+export const trackHold = (durationMs: number): PathTrackStep & ValueTrackStep & FaceTrackStep<never> => ({
+  durationMs,
+  type: 'hold',
 });
 
-export const parallel = <TObject>(steps: readonly OverlayStep<TObject>[]): OverlayStep<TObject> => ({
-  steps,
-  type: 'parallel',
+export const wait = trackWait;
+export const hold = trackHold;
+
+export const setValue = (value: number): ValueTrackStep => ({
+  type: 'set',
+  value,
+});
+
+export const tweenTo = (
+  to: number,
+  options: Omit<Extract<ValueTrackStep, { readonly type: 'tween' }>, 'to' | 'type'>,
+): ValueTrackStep => ({
+  ...options,
+  to,
+  type: 'tween',
+});
+
+export const showObject = <TObject>(object: TObject): FaceTrackStep<TObject> => ({
+  object,
+  type: 'show',
+});
+
+export const flipToObject = <TObject>(
+  object: TObject,
+  options: Omit<Extract<FaceTrackStep<TObject>, { readonly type: 'flip' }>, 'object' | 'type'>,
+): FaceTrackStep<TObject> => ({
+  ...options,
+  object,
+  type: 'flip',
 });
 
 export const targetEffect = (

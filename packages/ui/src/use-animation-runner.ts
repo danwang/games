@@ -1,11 +1,11 @@
 import {
-  advanceAnimation,
+  compileAnimation,
   createAnimationFrame,
-  currentSegmentDuration,
-  startAnimation,
+  sampleAnimation,
   type Animation,
   type AnimationFrame,
   type AnimationTargetResolver,
+  type CompiledAnimation,
 } from '@games/animation-core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -30,7 +30,6 @@ export const useAnimationRunner = <TSnapshot, TObject>({
   const [frame, setFrame] = useState<AnimationFrame<TSnapshot, TObject>>(
     createAnimationFrame(initialPresentedSnapshot ?? canonicalSnapshot),
   );
-  const timeoutRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   const deriveAnimationRef = useRef(deriveAnimation);
 
@@ -44,16 +43,17 @@ export const useAnimationRunner = <TSnapshot, TObject>({
         initialPresentedSnapshot ?? frame.presentedSnapshot,
         canonicalSnapshot,
       ),
-    // canonicalSnapshot / resetKey are the real inputs; frame.presentedSnapshot is only read for live updates.
+    // canonicalSnapshot / resetKey are the actual lifecycle inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [canonicalSnapshot, initialPresentedSnapshot, resetKey],
   );
 
+  const compiled = useMemo<CompiledAnimation<TSnapshot, TObject> | null>(() => {
+    const fallbackSnapshot = initialPresentedSnapshot ?? canonicalSnapshot;
+    return animation ? compileAnimation(animation, resolveTargetRect, fallbackSnapshot) : null;
+  }, [animation, canonicalSnapshot, initialPresentedSnapshot, resolveTargetRect]);
+
   useEffect(() => {
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
     if (rafRef.current !== null) {
       window.cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -61,46 +61,32 @@ export const useAnimationRunner = <TSnapshot, TObject>({
 
     const fallbackSnapshot = initialPresentedSnapshot ?? canonicalSnapshot;
 
-    if (!animation) {
+    if (!compiled) {
       setFrame(createAnimationFrame(canonicalSnapshot ?? fallbackSnapshot));
       return;
     }
 
-    let state = startAnimation(animation, resolveTargetRect, fallbackSnapshot);
+    const startedAt = performance.now();
 
-    const tick = () => {
-      state = advanceAnimation(state);
-      setFrame(state.frame);
+    const tick = (now: number) => {
+      const elapsedMs = now - startedAt;
+      const nextFrame = sampleAnimation(compiled, resolveTargetRect, elapsedMs);
+      setFrame(nextFrame);
 
-      const durationMs = currentSegmentDuration(state);
-
-      if (state.frame.isAnimating && durationMs > 0) {
-        timeoutRef.current = window.setTimeout(tick, durationMs);
+      if (elapsedMs < compiled.totalDurationMs) {
+        rafRef.current = window.requestAnimationFrame(tick);
       }
     };
 
-    rafRef.current = window.requestAnimationFrame(() => {
-      state = startAnimation(animation, resolveTargetRect, fallbackSnapshot);
-      setFrame(state.frame);
-
-      const durationMs = currentSegmentDuration(state);
-
-      if (state.frame.isAnimating && durationMs > 0) {
-        timeoutRef.current = window.setTimeout(tick, durationMs);
-      }
-    });
+    rafRef.current = window.requestAnimationFrame(tick);
 
     return () => {
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
       if (rafRef.current !== null) {
         window.cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [animation, canonicalSnapshot, initialPresentedSnapshot, resolveTargetRect, resetKey]);
+  }, [canonicalSnapshot, compiled, initialPresentedSnapshot, resolveTargetRect, resetKey]);
 
   return frame;
 };

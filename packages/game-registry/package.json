@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@games/game-sdk": "workspace:*",
+    "@games/lost-cities": "workspace:*",
     "@games/splendor": "workspace:*"
   },
   "scripts": {

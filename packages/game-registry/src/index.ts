@@ -1,6 +1,13 @@
+import { type GameDefinition } from '@games/game-sdk';
+import { lostCitiesGameDefinition } from '@games/lost-cities';
 import { splendorGameDefinition } from '@games/splendor';
 
-export const registeredGames = [
+export const registeredGames: readonly {
+  readonly definition: GameDefinition<any, any, any, any, any>;
+}[] = [
+  {
+    definition: lostCitiesGameDefinition,
+  },
   {
     definition: splendorGameDefinition,
   },

@@ -109,7 +109,7 @@ export const ChipTake: Story = {
   ),
 };
 
-export const ReserveVisible: Story = {
+export const MarketReserve: Story = {
   args: {},
   render: (_args, context) => (
     <SplendorTransitionHarness

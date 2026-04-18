@@ -1,4 +1,4 @@
-import { type ActiveEffectMap, type ResolvedOverlayActor } from '@games/animation-core';
+import { type ActiveEffectMap, type ResolvedActorFrame } from '@games/animation-core';
 import { ActionSheet, SegmentedControl, useAnimationRunner } from '@games/ui';
 import { type GameClientModule, type GameRenderProps } from '@games/game-sdk';
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -235,21 +235,6 @@ const reservedMarkerStyles = [
   'border-sky-200/35 from-sky-700 via-blue-900 to-sky-950',
 ] as const;
 
-const floatingChipStyles: Readonly<Record<GemColor, string>> = {
-  white:
-    'border border-stone-400/85 bg-stone-200 text-stone-900 shadow-[0_0_0_1px_rgba(255,255,255,0.45),0_10px_22px_rgba(255,255,255,0.18)]',
-  blue:
-    'border border-sky-500/70 bg-sky-100 text-sky-900 shadow-[0_0_0_1px_rgba(125,211,252,0.22),0_10px_22px_rgba(56,189,248,0.22)]',
-  green:
-    'border border-emerald-500/70 bg-emerald-100 text-emerald-900 shadow-[0_0_0_1px_rgba(110,231,183,0.22),0_10px_22px_rgba(52,211,153,0.22)]',
-  red:
-    'border border-rose-500/70 bg-rose-100 text-rose-900 shadow-[0_0_0_1px_rgba(253,164,175,0.22),0_10px_22px_rgba(251,113,133,0.22)]',
-  black:
-    'border border-slate-500/80 bg-slate-300 text-slate-950 shadow-[0_0_0_1px_rgba(120,113,108,0.35),0_10px_22px_rgba(24,24,27,0.24)]',
-  gold:
-    'border border-amber-400/70 bg-amber-100 text-amber-900 shadow-[0_0_0_1px_rgba(253,230,138,0.2),0_10px_22px_rgba(252,211,77,0.24)]',
-};
-
 const emptyPlayerReceiveAnimation: PlayerReceiveAnimation = {
   changedChipColors: [],
   changedTableauColors: [],
@@ -258,30 +243,31 @@ const emptyPlayerReceiveAnimation: PlayerReceiveAnimation = {
 };
 
 const groupChipTranslations = (
-  overlays: ReturnType<
+  actors: ReturnType<
     typeof useAnimationRunner<SplendorState, SplendorAnimationObject>
-  >['overlays'],
+  >['actors'],
 ) => {
   const grouped = new Map<
     string,
     {
       readonly color: GemColor;
       count: number;
-      readonly durationMs: number;
       readonly id: string;
-      readonly startLeft: number;
-      readonly startTop: number;
-      readonly endLeft: number;
-      readonly endTop: number;
+      readonly left: number;
+      readonly opacity: number;
+      readonly scale: number;
+      readonly top: number;
+      readonly x: number;
+      readonly y: number;
     }
   >();
 
-  for (const overlay of overlays) {
-    if (overlay.phase !== 'to' || overlay.object.kind !== 'chip') {
+  for (const actor of actors) {
+    if (actor.object.kind !== 'chip') {
       continue;
     }
 
-    const key = `${overlay.object.color}:${Math.round(overlay.startLeft)}:${Math.round(overlay.startTop)}:${Math.round(overlay.endLeft)}:${Math.round(overlay.endTop)}`;
+    const key = `${actor.object.color}:${actor.sourceTarget ?? ''}:${actor.destinationTarget ?? ''}`;
     const existing = grouped.get(key);
 
     if (existing) {
@@ -290,14 +276,15 @@ const groupChipTranslations = (
     }
 
     grouped.set(key, {
-      color: overlay.object.color,
+      color: actor.object.color,
       count: 1,
-      durationMs: overlay.durationMs,
-      endLeft: overlay.endLeft,
-      endTop: overlay.endTop,
       id: key,
-      startLeft: overlay.startLeft,
-      startTop: overlay.startTop,
+      left: actor.left,
+      opacity: actor.opacity,
+      scale: actor.scale,
+      top: actor.top,
+      x: actor.x,
+      y: actor.y,
     });
   }
 
@@ -310,7 +297,7 @@ const spreadGroupedChipTranslations = (
   const pathGroups = new Map<string, ReturnType<typeof groupChipTranslations>[number][]>();
 
   for (const translation of translations) {
-    const key = `${translation.startLeft}:${translation.startTop}:${translation.endLeft}:${translation.endTop}`;
+    const key = `${translation.left}:${translation.top}:${translation.x}:${translation.y}`;
     const existing = pathGroups.get(key) ?? [];
     existing.push(translation);
     pathGroups.set(key, existing);
@@ -362,24 +349,23 @@ const deriveActiveAnimationState = (
 });
 
 const deriveOutgoingPlaceholderMarketCardIds = (
-  overlays: readonly ResolvedOverlayActor<SplendorAnimationObject>[],
+  actors: readonly ResolvedActorFrame<SplendorAnimationObject>[],
   state: SplendorState,
 ): ReadonlySet<string> => {
   const isCardStillInMarket = (cardId: string): boolean =>
     cardTierOrder.some((tier) => state.market[`tier${tier}`].some((card) => card.id === cardId));
 
   return new Set(
-    overlays.flatMap((overlay) => {
+    actors.flatMap((actor) => {
       if (
-        overlay.phase !== 'to' ||
-        !overlay.sourceTarget?.startsWith('market:') ||
-        overlay.object.kind !== 'card' ||
-        !isCardStillInMarket(overlay.object.card.id)
+        !actor.sourceTarget?.startsWith('market:') ||
+        actor.object.kind !== 'card' ||
+        !isCardStillInMarket(actor.object.card.id)
       ) {
         return [];
       }
 
-      return [overlay.sourceTarget.replace('market:', '')];
+      return [actor.sourceTarget.replace('market:', '')];
     }),
   );
 };
@@ -826,8 +812,8 @@ export const SplendorGameView = ({
   const playerSummaries = useMemo(() => derivePlayerSummaries(displayedState), [displayedState]);
   const animationState = deriveActiveAnimationState(animationFrame.activeEffects);
   const groupedChipTranslations = useMemo(
-    () => groupChipTranslations(animationFrame.overlays),
-    [animationFrame.overlays],
+    () => groupChipTranslations(animationFrame.actors),
+    [animationFrame.actors],
   );
   const displayedChipTranslations = useMemo(
     () => spreadGroupedChipTranslations(groupedChipTranslations),
@@ -835,77 +821,18 @@ export const SplendorGameView = ({
   );
   const playerAnimations = deriveTargetPlayerAnimations(animationFrame.activeEffects, playerSummaries);
   const sourceChipBulges = deriveSourceChipBulgeState(animationFrame.activeEffects, playerSummaries);
-  const currentCardOverlays = useMemo(
+  const currentCardActors = useMemo(
     () =>
-      animationFrame.overlays.filter(
-        (overlay): overlay is typeof animationFrame.overlays[number] & {
+      animationFrame.actors.filter(
+        (actor): actor is typeof animationFrame.actors[number] & {
           readonly object: Extract<SplendorAnimationObject, { readonly kind: 'card' | 'noble' }>;
-        } => overlay.object.kind === 'card' || overlay.object.kind === 'noble',
+        } => actor.object.kind === 'card' || actor.object.kind === 'noble',
       ),
-    [animationFrame.overlays],
-  );
-  const overlayPersistenceRef = useRef(
-    new Map<
-      string,
-      {
-        readonly lastSeenAt: number;
-        readonly overlay: (typeof currentCardOverlays)[number];
-      }
-    >(),
-  );
-  const [retainedCardOverlays, setRetainedCardOverlays] = useState<
-    readonly (typeof currentCardOverlays)[number][]
-  >([]);
-  useEffect(() => {
-    const now = performance.now();
-    const cache = overlayPersistenceRef.current;
-    const seenIds = new Set<string>();
-    const retentionMsForOverlay = (
-      overlay: (typeof currentCardOverlays)[number],
-    ): number => {
-      if (overlay.phase === 'fadeTo') {
-        return 0;
-      }
-
-      return overlay.id.startsWith('card:market-reveal:') ? 34 : 280;
-    };
-
-    for (const overlay of currentCardOverlays) {
-      seenIds.add(overlay.id);
-      cache.set(overlay.id, {
-        lastSeenAt: now,
-        overlay,
-      });
-    }
-
-    if (!animationFrame.isAnimating) {
-      cache.clear();
-      setRetainedCardOverlays([]);
-      return;
-    }
-
-    for (const [objectId, entry] of [...cache.entries()]) {
-      if (
-        !seenIds.has(objectId) &&
-        now - entry.lastSeenAt > retentionMsForOverlay(entry.overlay)
-      ) {
-        cache.delete(objectId);
-      }
-    }
-
-    const retainedOverlays = [...cache.values()]
-      .map((entry) => entry.overlay)
-      .filter((overlay) => !seenIds.has(overlay.id));
-
-    setRetainedCardOverlays(retainedOverlays);
-  }, [animationFrame.isAnimating, currentCardOverlays]);
-  const visibleCardOverlays = useMemo(
-    () => [...currentCardOverlays, ...retainedCardOverlays],
-    [currentCardOverlays, retainedCardOverlays],
+    [animationFrame.actors],
   );
   const placeholderMarketCardIds = useMemo(
-    () => deriveOutgoingPlaceholderMarketCardIds(currentCardOverlays, displayedState),
-    [currentCardOverlays, displayedState],
+    () => deriveOutgoingPlaceholderMarketCardIds(currentCardActors, displayedState),
+    [currentCardActors, displayedState],
   );
   const activePlayer = displayedState.players[displayedState.turn.activePlayerIndex] ?? null;
   const activePlayerName = activePlayer?.identity.displayName ?? 'Unknown player';
@@ -2021,100 +1948,63 @@ export const SplendorGameView = ({
         <span
           key={translation.id}
           aria-hidden="true"
-          className="chip-flight fixed z-50 inline-flex items-center justify-center"
+          className="fixed z-50 inline-flex items-center justify-center pointer-events-none"
           style={
             {
-              animationDuration: `${translation.durationMs}ms`,
-              left: `${translation.startLeft}px`,
-              top: `${translation.startTop}px`,
-              '--chip-dx': `${translation.endLeft - translation.startLeft + translation.laneOffsetX}px`,
-              '--chip-dy': `${translation.endTop - translation.startTop + translation.laneOffsetY}px`,
+              left: `${translation.left}px`,
+              opacity: translation.opacity,
+              top: `${translation.top}px`,
+              transform: `translate3d(${translation.x + translation.laneOffsetX}px, ${translation.y + translation.laneOffsetY}px, 0) scale(${translation.scale})`,
             } as CSSProperties
           }
         >
-          <span
-            className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-[11px] font-bold ring-1 ring-white/18 shadow-[0_10px_22px_rgba(0,0,0,0.34)] ${floatingChipStyles[translation.color]}`}
-          >
-            {translation.count}
+          <span className="drop-shadow-[0_10px_22px_rgba(0,0,0,0.34)]">
+            <GemPip color={translation.color} count={translation.count} size="sm" />
           </span>
         </span>
       ))}
 
-      {visibleCardOverlays.map((overlay) => (
+      {currentCardActors.map((actor) => (
         <div
-          key={`overlay:${overlay.id}`}
+          key={`actor:${actor.id}`}
           aria-hidden="true"
-          className={`fixed z-50 pointer-events-none ${
-            overlay.object.kind === 'noble'
-              ? overlay.phase === 'to'
-                ? 'noble-flight w-[4.25rem]'
-                : 'w-[4.25rem]'
-              : `${
-                  overlay.phase === 'to'
-                    ? overlay.endPose.opacity < overlay.startPose.opacity
-                      ? 'card-exit'
-                      : 'card-flight'
-                    : overlay.phase === 'hold'
-                        ? 'card-hold'
-                        : overlay.phase === 'flipTo'
-                          ? 'card-flip-only card-overlay-pose'
-                          : overlay.phase === 'fadeTo'
-                            ? 'card-fade-out'
-                          : 'card-land card-overlay-pose'
-                }`
-          }`}
+          className="fixed z-50 pointer-events-none"
           style={
-            overlay.phase === 'to'
-              ? ({
-                  animationDuration: `${overlay.durationMs}ms`,
-                  left: `${overlay.startLeft}px`,
-                  top: `${overlay.startTop}px`,
-                  width: `${overlay.width}px`,
-                  '--card-dx': `${overlay.endLeft - overlay.startLeft + (overlay.endPose.x - overlay.startPose.x)}px`,
-                  '--card-dy': `${overlay.endTop - overlay.startTop + (overlay.endPose.y - overlay.startPose.y)}px`,
-                  '--overlay-from-opacity': overlay.startPose.opacity,
-                  '--overlay-from-rotate': overlay.startPose.rotate,
-                  '--overlay-from-scale': overlay.startPose.scale,
-                  '--overlay-to-opacity': overlay.endPose.opacity,
-                  '--overlay-to-rotate': overlay.endPose.rotate,
-                  '--overlay-to-scale': overlay.endPose.scale,
-                } as CSSProperties)
-              : overlay.phase === 'fadeTo'
-                ? ({
-                    animationDuration: `${overlay.durationMs}ms`,
-                    left: `${overlay.endLeft}px`,
-                    top: `${overlay.endTop}px`,
-                    width: `${overlay.width}px`,
-                    '--overlay-from-opacity': overlay.startPose.opacity,
-                    '--overlay-from-rotate': overlay.startPose.rotate,
-                    '--overlay-from-scale': overlay.startPose.scale,
-                    '--overlay-to-opacity': overlay.endPose.opacity,
-                    '--overlay-to-rotate': overlay.endPose.rotate,
-                    '--overlay-to-scale': overlay.endPose.scale,
-                  } as CSSProperties)
-              : ({
-                  animationDuration: `${overlay.durationMs}ms`,
-                  left: `${overlay.endLeft}px`,
-                  top: `${overlay.endTop}px`,
-                  opacity: overlay.endPose.opacity,
-                  transform: `translate3d(${overlay.endPose.x}px, ${overlay.endPose.y}px, 0) scale(${overlay.endPose.scale}) rotate(${overlay.endPose.rotate}deg)`,
-                  width: `${overlay.width}px`,
-                } as CSSProperties)
+            {
+              left: `${actor.left}px`,
+              opacity: actor.opacity,
+              top: `${actor.top}px`,
+              transform: `translate3d(${actor.x}px, ${actor.y}px, 0) scale(${actor.scale}) rotate(${actor.rotate}deg)`,
+              width: `${actor.width}px`,
+            } as CSSProperties
           }
         >
-          {overlay.object.kind === 'noble' ? (
-            <NobleTile noble={overlay.object.noble} size="compact" />
-          ) : overlay.phase === 'flipTo' && overlay.nextObject?.kind === 'card' ? (
-            <div className="card-flip-only-inner relative aspect-[5/7] w-full">
-              <div className="card-flight-face absolute inset-0">
-                {renderCardAnimationObject(overlay.object)}
-              </div>
-              <div className="card-flight-face absolute inset-0" style={{ transform: 'rotateY(180deg)' }}>
-                {renderCardAnimationObject(overlay.nextObject)}
+          {actor.object.kind === 'noble' ? (
+            <NobleTile noble={actor.object.noble} size="compact" />
+          ) : actor.flipProgress !== undefined && actor.nextObject?.kind === 'card' ? (
+            <div
+              className="relative aspect-[5/7] w-full"
+              style={{
+                perspective: '1000px',
+              }}
+            >
+              <div
+                className="relative h-full w-full"
+                style={{
+                  transform: `rotateY(${actor.flipProgress * 180}deg)`,
+                  transformStyle: 'preserve-3d',
+                }}
+              >
+                <div className="card-flight-face absolute inset-0">
+                  {renderCardAnimationObject(actor.object)}
+                </div>
+                <div className="card-flight-face absolute inset-0" style={{ transform: 'rotateY(180deg)' }}>
+                  {renderCardAnimationObject(actor.nextObject)}
+                </div>
               </div>
             </div>
           ) : (
-            renderCardAnimationObject(overlay.object)
+            renderCardAnimationObject(actor.object)
           )}
         </div>
       ))}

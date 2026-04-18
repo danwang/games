@@ -18,6 +18,7 @@
       "@games/game-sdk": ["packages/game-sdk/src/index.ts"],
       "@games/game-registry": ["packages/game-registry/src/index.ts"],
       "@games/lost-cities": ["packages/games/lost-cities/src/index.ts"],
+      "@games/lost-cities/ui": ["packages/games/lost-cities/src/ui/index.tsx"],
       "@games/ui": ["packages/ui/src/index.ts"],
       "@games/splendor": ["packages/games/splendor/src/index.ts"],
       "@games/splendor/ui": ["packages/games/splendor/src/ui/index.tsx"]

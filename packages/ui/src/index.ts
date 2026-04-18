@@ -1,4 +1,5 @@
 export { ActionSheet, type ActionSheetProps } from './action-sheet.js';
+export { FlipCounter, type FlipCounterProps } from './flip-counter.js';
 export {
   SegmentedControl,
   type SegmentedControlOption,

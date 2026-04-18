@@ -1,17 +1,19 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import {
+  actor,
   animation,
   bulge,
   checkpoint,
   clone,
-  flipTo,
+  flipToObject,
   hold,
-  overlay,
+  moveTo,
   pulseNumber,
   removeAtEnd,
-  sequence,
+  setValue,
   targetEffect,
-  to,
+  tweenTo,
+  wait,
   type Animation,
 } from '@games/animation-core';
 import { useAnimationRunner } from '@games/ui';
@@ -141,66 +143,42 @@ const PrimitiveSandbox = ({
             </div>
           </section>
 
-          {frame.overlays.map((overlay) => (
+          {frame.actors.map((actorFrame) => (
             <div
-              key={overlay.id}
+              key={actorFrame.id}
               aria-hidden="true"
-              className={`fixed z-50 pointer-events-none ${
-                overlay.object.kind === 'noble'
-                  ? overlay.phase === 'to'
-                    ? 'noble-flight w-[4.25rem]'
-                    : 'w-[4.25rem]'
-                  : overlay.object.kind === 'card'
-                    ? overlay.phase === 'to'
-                      ? 'card-flight w-[4.6rem]'
-                      : overlay.phase === 'flipTo'
-                        ? 'card-flip-only card-overlay-pose w-[4.6rem]'
-                        : 'card-hold w-[4.6rem]'
-                    : 'chip-flight'
-              }`}
+              className="fixed z-50 pointer-events-none"
               style={
-                (overlay.object.kind === 'chip'
-                  ? {
-                      animationDuration: `${overlay.durationMs}ms`,
-                      left: `${overlay.startLeft}px`,
-                      top: `${overlay.startTop}px`,
-                      '--chip-dx': `${overlay.endLeft - overlay.startLeft}px`,
-                      '--chip-dy': `${overlay.endTop - overlay.startTop}px`,
-                    }
-                  : overlay.phase === 'to'
-                    ? {
-                        animationDuration: `${overlay.durationMs}ms`,
-                        left: `${overlay.startLeft}px`,
-                        top: `${overlay.startTop}px`,
-                        '--card-dx': `${overlay.endLeft - overlay.startLeft + (overlay.endPose.x - overlay.startPose.x)}px`,
-                        '--card-dy': `${overlay.endTop - overlay.startTop + (overlay.endPose.y - overlay.startPose.y)}px`,
-                        '--overlay-from-opacity': overlay.startPose.opacity,
-                        '--overlay-from-rotate': overlay.startPose.rotate,
-                        '--overlay-from-scale': overlay.startPose.scale,
-                        '--overlay-to-opacity': overlay.endPose.opacity,
-                        '--overlay-to-rotate': overlay.endPose.rotate,
-                        '--overlay-to-scale': overlay.endPose.scale,
-                      }
-                    : {
-                        animationDuration: `${overlay.durationMs}ms`,
-                        left: `${overlay.endLeft}px`,
-                        top: `${overlay.endTop}px`,
-                        opacity: overlay.endPose.opacity,
-                        transform: `translate3d(${overlay.endPose.x}px, ${overlay.endPose.y}px, 0) scale(${overlay.endPose.scale}) rotate(${overlay.endPose.rotate}deg)`,
-                      }) as CSSProperties
+                {
+                  left: `${actorFrame.left}px`,
+                  opacity: actorFrame.opacity,
+                  top: `${actorFrame.top}px`,
+                  transform: `translate3d(${actorFrame.x}px, ${actorFrame.y}px, 0) scale(${actorFrame.scale}) rotate(${actorFrame.rotate}deg)`,
+                  width: `${actorFrame.width}px`,
+                } as CSSProperties
               }
             >
-              {overlay.phase === 'flipTo' && overlay.object.kind === 'card' && overlay.nextObject?.kind === 'card' ? (
-                <div className="card-flip-only-inner relative aspect-[5/7] w-full">
-                  <div className="card-flight-face absolute inset-0">
-                    {renderObject(overlay.object)}
-                  </div>
-                  <div className="card-flight-face absolute inset-0" style={{ transform: 'rotateY(180deg)' }}>
-                    {renderObject(overlay.nextObject)}
+              {actorFrame.flipProgress !== undefined &&
+              actorFrame.object.kind === 'card' &&
+              actorFrame.nextObject?.kind === 'card' ? (
+                <div className="relative aspect-[5/7] w-full" style={{ perspective: '1000px' }}>
+                  <div
+                    className="relative h-full w-full"
+                    style={{
+                      transform: `rotateY(${actorFrame.flipProgress * 180}deg)`,
+                      transformStyle: 'preserve-3d',
+                    }}
+                  >
+                    <div className="card-flight-face absolute inset-0">
+                      {renderObject(actorFrame.object)}
+                    </div>
+                    <div className="card-flight-face absolute inset-0" style={{ transform: 'rotateY(180deg)' }}>
+                      {renderObject(actorFrame.nextObject)}
+                    </div>
                   </div>
                 </div>
               ) : (
-                renderObject(overlay.object)
+                renderObject(actorFrame.object)
               )}
             </div>
           ))}
@@ -236,12 +214,16 @@ export const TranslateChip: Story = {
             checkpoint(0, { stage: 'before' }),
             checkpoint(1200, { stage: 'after' }),
           ],
-          overlays: [
-            overlay({
+          actors: [
+            actor({
               id: 'chip:blue:0',
               mount: clone(targets.chipFrom),
               object: { color: 'blue', kind: 'chip' },
-              steps: [to(targets.chipTo, { durationMs: 1200, easing: 'flight' })],
+              tracks: {
+                opacity: [setValue(0), tweenTo(1, { durationMs: 120 }), hold(990), tweenTo(0, { durationMs: 90 })],
+                path: [moveTo(targets.chipTo, { durationMs: 1200, easing: 'chip-flight' })],
+                scale: [setValue(0.72), tweenTo(1.02, { durationMs: 1200, easing: 'chip-flight' })],
+              },
               unmount: removeAtEnd(),
             }),
           ],
@@ -275,18 +257,25 @@ export const FlipCard: Story = {
             checkpoint(0, { stage: 'before' }),
             checkpoint(1060, { stage: 'after' }),
           ],
-          overlays: [
-            overlay({
+          actors: [
+            actor({
               id: 'card:demo',
               mount: clone(targets.cardFrom),
-              object: { cardId: 'demo', face: 'back', kind: 'card' },
-              steps: [
-                sequence([
-                  to('self', { durationMs: 420, scale: 1, y: -8 }),
-                  flipTo({ cardId: 'demo', face: 'front', kind: 'card' }, { durationMs: 320 }),
-                  to(targets.cardTo, { durationMs: 320, rotate: 0, scale: 1, y: 0 }),
-                ]),
-              ],
+              object: { cardId: 'demo', face: 'back', kind: 'card' } as PrimitiveObject,
+              tracks: {
+                face: [
+                  wait(420),
+                  flipToObject(
+                    { cardId: 'demo', face: 'front', kind: 'card' } as PrimitiveObject,
+                    { durationMs: 320 },
+                  ),
+                ],
+                path: [
+                  moveTo('self', { durationMs: 420, y: -8 }),
+                  hold(320),
+                  moveTo(targets.cardTo, { durationMs: 320, y: 0 }),
+                ],
+              },
               unmount: removeAtEnd(),
             }),
           ],
@@ -305,19 +294,26 @@ export const ParallelSequence: Story = {
             checkpoint(0, { stage: 'before' }),
             checkpoint(1200, { stage: 'after' }),
           ],
-          overlays: [
-            overlay({
+          actors: [
+            actor({
               id: 'chip:red:0',
               mount: clone(targets.chipFrom),
               object: { color: 'red', kind: 'chip' },
-              steps: [to(targets.chipTo, { durationMs: 1200, easing: 'flight' })],
+              tracks: {
+                opacity: [setValue(0), tweenTo(1, { durationMs: 120 }), hold(990), tweenTo(0, { durationMs: 90 })],
+                path: [moveTo(targets.chipTo, { durationMs: 1200, easing: 'chip-flight' })],
+                scale: [setValue(0.72), tweenTo(1.02, { durationMs: 1200, easing: 'chip-flight' })],
+              },
               unmount: removeAtEnd(),
             }),
-            overlay({
+            actor({
               id: 'noble:demo',
               mount: clone(targets.nobleFrom),
               object: { kind: 'noble', nobleId: simulatedNobleState.nobles[0]!.id },
-              steps: [to(targets.nobleTo, { durationMs: 1200, easing: 'flight', scale: 0.94 })],
+              tracks: {
+                path: [moveTo(targets.nobleTo, { durationMs: 1200, easing: 'flight' })],
+                scale: [tweenTo(0.94, { durationMs: 1200, easing: 'flight' })],
+              },
               unmount: removeAtEnd(),
             }),
           ],

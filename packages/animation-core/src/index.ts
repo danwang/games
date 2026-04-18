@@ -1,9 +1,8 @@
 export * from './types.js';
 export * from './dsl.js';
 export {
-  advanceAnimation,
+  compileAnimation,
   createAnimationFrame,
-  currentSegmentDuration,
-  startAnimation,
-  type AnimationRunnerState,
+  sampleAnimation,
+  type CompiledAnimation,
 } from './runner.js';
