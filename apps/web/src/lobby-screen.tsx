@@ -45,10 +45,22 @@ export const LobbyScreen = ({
     { label: 'Join room', value: 'join' },
     { label: 'Create room', value: 'create' },
   ] as const;
-  const [selectedGameId, setSelectedGameId] = useState(availableGames[0]?.id ?? '');
+  const preferredGameId = availableGames.find((game) => game.id === 'splendor')?.id ?? availableGames[0]?.id ?? '';
+  const [selectedGameId, setSelectedGameId] = useState(preferredGameId);
   const selectedGame =
-    availableGames.find((game) => game.id === selectedGameId) ?? availableGames[0] ?? null;
+    availableGames.find((game) => game.id === selectedGameId) ??
+    availableGames.find((game) => game.id === preferredGameId) ??
+    availableGames[0] ??
+    null;
   const [draftConfig, setDraftConfig] = useState<SerializedValue>(selectedGame?.defaultConfig ?? {});
+
+  useEffect(() => {
+    if (availableGames.some((game) => game.id === selectedGameId)) {
+      return;
+    }
+
+    setSelectedGameId(preferredGameId);
+  }, [availableGames, preferredGameId, selectedGameId]);
 
   useEffect(() => {
     setDraftConfig(selectedGame?.defaultConfig ?? {});

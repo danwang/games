@@ -545,7 +545,7 @@ const PlayerSummaryRow = ({
 }) => {
   const isCurrentUser = player.id === currentUserId;
   const isWaitingOnOpponent = !isReplayMode && isActivePlayer && !isCurrentUser;
-  const showTurnGlow = !isReplayMode && isActivePlayer && isCurrentUser;
+  const showTurnGlow = false;
   const totalTableauCards = tokenColorOrder.reduce(
     (sum, color) => sum + player.tableauBonuses[color],
     0,

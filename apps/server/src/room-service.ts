@@ -81,7 +81,13 @@ export const createRoomService = (): RoomService => {
     }
 
     if (record.room.status !== 'waiting') {
-      throw new Error(`Room ${roomId} has already started.`);
+      const existingSeat = record.room.seats.find((seat) => seat.playerId === player.playerId);
+
+      if (!existingSeat) {
+        throw new Error(`Room ${roomId} has already started.`);
+      }
+
+      return record.room;
     }
 
     const nextRoom = joinRoomSnapshot({

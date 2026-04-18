@@ -118,6 +118,7 @@ export const App = () => {
   const reconnectTimerRef = useRef<number | null>(null);
   const desiredRoomIdRef = useRef<RoomId | null>(null);
   const playerRef = useRef(player);
+  const currentRoomRef = useRef<RoomSnapshot | null>(currentRoom);
   const availableGames = registeredGames.map(({ definition }) => ({
     id: definition.id,
     displayName: definition.displayName,
@@ -135,6 +136,10 @@ export const App = () => {
   }, [player]);
 
   useEffect(() => {
+    currentRoomRef.current = currentRoom;
+  }, [currentRoom]);
+
+  useEffect(() => {
     const handlePopState = () => {
       const nextRoomId = getRoomIdFromLocation();
       const previousRoomId = desiredRoomIdRef.current;
@@ -144,12 +149,14 @@ export const App = () => {
       }
 
       if (previousRoomId && socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(
-          JSON.stringify({
-            type: 'leave-room',
-            roomId: previousRoomId,
-          }),
-        );
+        if (currentRoomRef.current?.status === 'waiting') {
+          socketRef.current.send(
+            JSON.stringify({
+              type: 'leave-room',
+              roomId: previousRoomId,
+            }),
+          );
+        }
       }
 
       setDesiredRoomId(nextRoomId);
@@ -324,13 +331,14 @@ export const App = () => {
 
   const leaveRoom = (): void => {
     const roomId = desiredRoomIdRef.current;
+    const shouldLeaveSeat = currentRoomRef.current?.status === 'waiting';
 
     setDesiredRoomId(null);
     setCurrentRoom(null);
     setCurrentRoomHistory([]);
     window.history.pushState(null, '', getPathForRoom(null));
 
-    if (!roomId) {
+    if (!roomId || !shouldLeaveSeat) {
       return;
     }
 
