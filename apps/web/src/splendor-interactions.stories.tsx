@@ -135,7 +135,7 @@ export const MidgameClickable: Story = {
   },
 };
 
-export const BankModal: Story = {
+export const BankSheet: Story = {
   render: (_args, context) =>
     renderSplendorStory(
       baseSplendorState,
@@ -148,7 +148,7 @@ export const BankModal: Story = {
   },
 };
 
-export const MarketCardModal: Story = {
+export const MarketCardSheet: Story = {
   render: (_args, context) =>
     renderSplendorStory(
       baseSplendorState,
@@ -161,7 +161,7 @@ export const MarketCardModal: Story = {
   },
 };
 
-export const MarketCardModalNeedsGold: Story = {
+export const MarketCardSheetNeedsGold: Story = {
   render: (_args, context) =>
     renderSplendorStory(
       goldShortageState,
@@ -176,7 +176,7 @@ export const MarketCardModalNeedsGold: Story = {
   },
 };
 
-export const ReservedCardModal: Story = {
+export const ReservedCardSheet: Story = {
   render: (_args, context) =>
     renderSplendorStory(
       reservedPressureState,
@@ -191,7 +191,7 @@ export const ReservedCardModal: Story = {
   },
 };
 
-export const DeckModal: Story = {
+export const DeckSheet: Story = {
   render: (_args, context) =>
     renderSplendorStory(
       baseSplendorState,
@@ -204,7 +204,7 @@ export const DeckModal: Story = {
   },
 };
 
-export const PlayerModal: Story = {
+export const PlayerSheet: Story = {
   render: (_args, context) =>
     renderSplendorStory(
       reservedPressureState,
@@ -219,7 +219,7 @@ export const PlayerModal: Story = {
   },
 };
 
-export const MenuModal: Story = {
+export const MenuSheet: Story = {
   render: (_args, context) =>
     renderSplendorStory(
       baseSplendorState,
@@ -232,7 +232,7 @@ export const MenuModal: Story = {
   },
 };
 
-export const DiscardModal: Story = {
+export const DiscardStep: Story = {
   render: (_args, context) =>
     renderSplendorStory(
       discardPhaseState,
@@ -246,7 +246,7 @@ export const DiscardModal: Story = {
   },
 };
 
-export const NobleModal: Story = {
+export const NobleChoice: Story = {
   render: (_args, context) =>
     renderSplendorStory(
       nobleChoiceState,

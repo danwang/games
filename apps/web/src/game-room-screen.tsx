@@ -75,13 +75,6 @@ export const GameRoomScreen = ({
               </div>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap lg:max-w-[15rem] lg:flex-col lg:items-stretch">
-              <PillButton
-                className="sm:w-auto lg:w-full"
-                onClick={() => void navigator.clipboard.writeText(room.id)}
-                variant="secondary"
-              >
-                Copy code
-              </PillButton>
               {isHost ? (
                 <PillButton
                   className="sm:w-auto lg:w-full"

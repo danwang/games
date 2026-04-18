@@ -42,8 +42,8 @@ type Selection =
   | { readonly type: 'menu' }
   | null;
 
-type BoardPanel = 'board' | 'nobles' | 'log';
-type ForcedSheet = 'discard' | 'noble';
+type BoardPanel = 'board' | 'log';
+type ForcedSheet = 'discard';
 
 interface PlayerReceiveAnimation {
   readonly changedChipColors: readonly GemColor[];
@@ -110,20 +110,26 @@ const roomCodeLabel = (roomLabel: string | undefined): string => {
   return rawValue.length > 10 ? rawValue.slice(0, 10).toUpperCase() : rawValue.toUpperCase();
 };
 
-const currentTurnCopy = (state: SplendorState, activePlayerName: string): string => {
+const currentTurnCopy = (
+  state: SplendorState,
+  activePlayerName: string,
+  isCurrentUsersTurn: boolean,
+): string => {
   if (state.status === 'finished') {
     return 'Final results are ready.';
   }
 
   if (state.turn.kind === 'discard') {
-    return `${activePlayerName} is discarding.`;
+    return isCurrentUsersTurn
+      ? `Your turn. Discard ${state.turn.requiredCount}.`
+      : `${activePlayerName} is discarding.`;
   }
 
   if (state.turn.kind === 'noble') {
-    return `${activePlayerName} is choosing a noble.`;
+    return isCurrentUsersTurn ? 'Your turn. Choose a noble.' : `${activePlayerName} is choosing a noble.`;
   }
 
-  return `${activePlayerName}'s turn.`;
+  return isCurrentUsersTurn ? 'Your turn. Take an action.' : `${activePlayerName}'s turn.`;
 };
 
 const iconButtonClass =
@@ -197,7 +203,7 @@ const ReplayPlayIcon = ({ paused }: { readonly paused: boolean }) =>
 const ReplayUndoIcon = () => (
   <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
     <path
-      d="M5 5.5 2.75 7.75 5 10m-2.25-2.25H8.5a4 4 0 1 1 0 8"
+      d="M5.25 4.5 2.75 7l2.5 2.5M3 7h5.75a4.25 4.25 0 1 1 0 8.5H7.5"
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -544,6 +550,7 @@ const PlayerSummaryRow = ({
 }) => {
   const isCurrentUser = player.id === currentUserId;
   const isWaitingOnOpponent = isActivePlayer && !isCurrentUser;
+  const showTurnGlow = isActivePlayer && isCurrentUser;
   const totalTableauCards = tokenColorOrder.reduce(
     (sum, color) => sum + player.tableauBonuses[color],
     0,
@@ -551,21 +558,24 @@ const PlayerSummaryRow = ({
   const totalChips = gemOrder.reduce((sum, color) => sum + player.tokens[color], 0);
 
   return (
-    <button
-      ref={rowRef}
-      className={`relative w-full overflow-hidden rounded-[1rem] border px-2.5 py-1.5 text-left ${
-        isActivePlayer && isCurrentUser
-          ? 'border-amber-300/45 bg-amber-300/10'
-          : isWaitingOnOpponent
+    <div className="relative rounded-[1rem]">
+      {showTurnGlow ? (
+        <svg aria-hidden="true" className="turn-border-svg">
+          <rect className="turn-border-blur" pathLength="100" rx="16" ry="16" />
+          <rect className="turn-border-line" pathLength="100" rx="16" ry="16" />
+        </svg>
+      ) : null}
+      <button
+        ref={rowRef}
+        className={`relative z-10 w-full overflow-hidden rounded-[1rem] border px-2.5 py-1.5 text-left ${
+          isActivePlayer
             ? 'border-sky-300/35 bg-sky-400/8'
-            : isCurrentUser
-              ? 'border-amber-300/45 bg-amber-300/10'
-              : 'border-white/8 bg-white/3'
-      } ${isRecentlyUpdated ? 'player-row-receive' : ''}`}
-      onClick={onPress}
-      type="button"
-    >
-      <div className="flex items-start justify-between gap-3">
+            : 'border-white/8 bg-white/3'
+        } ${isRecentlyUpdated ? 'player-row-receive' : ''}`}
+        onClick={onPress}
+        type="button"
+      >
+        <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[13px] font-semibold text-stone-50">{player.displayName}</span>
@@ -575,14 +585,12 @@ const PlayerSummaryRow = ({
               </span>
             ) : null}
             {isWaitingOnOpponent ? (
-              <span className="inline-flex h-5 items-center gap-1 rounded-full border border-sky-300/25 bg-sky-300/8 px-2 text-[9px] leading-none uppercase tracking-[0.18em] text-sky-200/90">
-                <span className="h-1.5 w-1.5 rounded-full bg-sky-300 animate-pulse" />
-                Waiting
-              </span>
-            ) : null}
-            {isActivePlayer && isCurrentUser ? (
-              <span className="inline-flex h-5 items-center rounded-full border border-amber-300/25 bg-amber-300/8 px-2 text-[9px] leading-none uppercase tracking-[0.18em] text-amber-100">
-                Active
+              <span className="inline-flex h-5 items-center gap-1 px-1 text-[9px] leading-none uppercase tracking-[0.18em] text-sky-200/90">
+                <span className="flex items-center gap-0.5" aria-label="Waiting for turn">
+                  <span className="h-1.5 w-1.5 rounded-full bg-sky-300/35 animate-pulse [animation-delay:0ms] [animation-duration:900ms]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-sky-300/35 animate-pulse [animation-delay:120ms] [animation-duration:900ms]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-sky-300/35 animate-pulse [animation-delay:240ms] [animation-duration:900ms]" />
+                </span>
               </span>
             ) : null}
           </div>
@@ -645,7 +653,8 @@ const PlayerSummaryRow = ({
         aria-hidden="true"
         className="pointer-events-none absolute right-2.25 bottom-2 h-6 w-6 opacity-0"
       />
-    </button>
+      </button>
+    </div>
   );
 };
 
@@ -767,6 +776,31 @@ export const SplendorGameView = ({
         left: tableauRect.left + 10,
         top: tableauRect.top + (tableauRect.height - tableauCardHeight) / 2,
         width: tableauCardWidth,
+      };
+    }
+
+    const nobleTargetMatch = targetId.match(/^player:([^:]+):nobles$/);
+
+    if (nobleTargetMatch) {
+      const playerId = nobleTargetMatch[1];
+
+      if (!playerId) {
+        return null;
+      }
+
+      const nobleNode = targetNodeRefs.current[splendorAnimationTargets.playerNobles(playerId)];
+
+      if (!nobleNode) {
+        return null;
+      }
+
+      const rect = nobleNode.getBoundingClientRect();
+
+      return {
+        height: rect.height,
+        left: rect.left - 16,
+        top: rect.top,
+        width: rect.width,
       };
     }
 
@@ -903,13 +937,8 @@ export const SplendorGameView = ({
     interaction.discardMoves.find((move) => discardMoveMatchesSelection(move, discardSelection)) ?? null;
   const waitingForDiscard = displayedState.turn.kind === 'discard';
   const waitingForNoble = displayedState.turn.kind === 'noble';
-  const forcedSheet: ForcedSheet | null = interaction.isCurrentUsersTurn
-    ? waitingForNoble
-      ? 'noble'
-      : waitingForDiscard
-        ? 'discard'
-        : null
-    : null;
+  const forcedSheet: ForcedSheet | null =
+    interaction.isCurrentUsersTurn && waitingForDiscard ? 'discard' : null;
   const visibleForcedSheet = forcedSheet !== null && dismissedForcedSheet !== forcedSheet ? forcedSheet : null;
   const actionSheetOpen = visibleForcedSheet !== null || selection !== null;
   const canSubmitRealtimeMoves = replaySelection === null;
@@ -1427,73 +1456,6 @@ export const SplendorGameView = ({
     );
   };
 
-  const renderNobleSheet = () => (
-    <div className="space-y-4">
-      <p className="text-sm leading-6 text-stone-300">Your purchase unlocked a noble. Claim one or skip the visit.</p>
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          ...displayedState.nobles.map((noble) => ({
-            noble,
-            ownerDisplayName: null as string | null,
-          })),
-          ...displayedState.players.flatMap((player) =>
-            player.nobles.map((noble) => ({
-              noble,
-              ownerDisplayName: player.identity.displayName,
-            })),
-          ),
-        ].map(({ noble, ownerDisplayName }) => {
-          const claimMove = interaction.claimNobleMoves.find((move) => move.nobleId === noble.id);
-          const statusLabel = claimMove
-            ? 'Claim'
-            : ownerDisplayName
-              ? 'Claimed'
-              : 'Ineligible';
-
-          return (
-            <div
-              className={`relative ${
-                claimMove
-                  ? ''
-                  : ownerDisplayName
-                    ? 'opacity-45 saturate-50'
-                    : ''
-              }`}
-              key={`noble-${noble.id}`}
-            >
-              <NobleTile
-                isSelected={Boolean(claimMove)}
-                noble={noble}
-                size="compact"
-                {...(claimMove
-                  ? {
-                      onPress: () => canSubmitRealtimeMoves && submitAndReset(claimMove),
-                    }
-                  : {})}
-              />
-              <span
-                className={`pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.18em] ${
-                  claimMove
-                    ? 'border border-emerald-200/35 bg-emerald-500/18 text-emerald-50 shadow-[0_6px_20px_rgba(16,185,129,0.18)]'
-                    : ownerDisplayName
-                      ? 'border border-sky-200/20 bg-sky-950/70 text-sky-100'
-                      : 'border border-white/10 bg-stone-950/75 text-stone-400'
-                }`}
-              >
-                {statusLabel}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      {interaction.skipNobleMove ? (
-        <button className={subtleButtonClass} disabled={!canSubmitRealtimeMoves} onClick={() => submitAndReset(interaction.skipNobleMove!)} type="button">
-          Skip noble
-        </button>
-      ) : null}
-    </div>
-  );
-
   const renderPlayerSheet = (player: SplendorState['players'][number]) => {
     const playerSummary = playerSummaries.find((summary) => summary.id === player.identity.id)!;
     const canViewReserved = player.identity.id === playerId;
@@ -1573,75 +1535,102 @@ export const SplendorGameView = ({
 
   const renderBoardPanel = () => (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <section className="shrink-0 rounded-[1rem] border border-white/10 bg-stone-950/72 p-2 shadow-[0_14px_36px_rgba(0,0,0,0.24)]">
-        <button
-          className={`flex w-full items-center gap-2 rounded-[0.8rem] text-left transition ${
-            selection?.type === 'bank' ? 'bg-white/5' : ''
-          } ${canSubmitRealtimeMoves && interaction.isCurrentUsersTurn && displayedState.turn.kind === 'main-action' ? 'active:scale-[0.995]' : ''}`}
-          disabled={!canSubmitRealtimeMoves || !interaction.isCurrentUsersTurn || displayedState.turn.kind !== 'main-action'}
-          onClick={() => setSelection({ type: 'bank' })}
-          type="button"
-        >
-          <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400">Bank</span>
-          <ChipStrip
-            counts={displayedState.bank}
-            highlightedColors={animationState.changedBankColors}
-            targetRefByColor={Object.fromEntries(
-              gemOrder.map((color) => [color, registerTarget(splendorAnimationTargets.bankChip(color))]),
-            ) as Partial<Record<GemColor, (node: HTMLSpanElement | null) => void>>}
-          />
-        </button>
-      </section>
-
-      <section className="min-h-0 overflow-hidden rounded-[1rem] border border-white/10 bg-stone-950/72 p-2 shadow-[0_14px_36px_rgba(0,0,0,0.24)]">
-        <div className="relative min-h-0 flex-1">
-          <div className="flex h-full min-h-0 flex-col gap-1.5 overflow-y-auto">
-          {cardTierOrder.map((tier) => (
-            <section className="px-0.5" key={`tier-${tier}`}>
-              <div className="grid grid-cols-5 gap-1.5">
-                <div ref={registerTarget(splendorAnimationTargets.deck(tier))}>
-                  <DeckCard
-                    disabled={!canSubmitRealtimeMoves || !interaction.isCurrentUsersTurn || displayedState.turn.kind !== 'main-action'}
-                    isSelected={selection?.type === 'deck' && selection.tier === tier}
-                    onPress={() => setSelection({ type: 'deck', tier })}
-                    remainingCount={displayedState.decks[`tier${tier}`].length}
-                    size="compact"
-                    tier={tier}
-                  />
-                </div>
-                {displayedState.market[`tier${tier}`].map((card, index) => (
-                  <div key={card.id} ref={registerTarget(splendorAnimationTargets.marketSlot(tier, index))}>
-                    <div ref={registerTarget(splendorAnimationTargets.marketCard(card.id))}>
-                    {placeholderMarketCardIds.has(card.id) ? (
-                      <div className="aspect-[5/7] w-full rounded-[1.05rem] border border-dashed border-white/10 bg-white/3" />
-                    ) : (
-                      <SplendorCard
-                        card={card}
-                        isSelected={selection?.type === 'market-card' && selection.cardId === card.id}
-                        onPress={() => setSelection({ type: 'market-card', cardId: card.id })}
-                        size="compact"
-                      />
-                    )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ))}
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-
-  const renderNoblesPanel = () => (
-    <section className="rounded-[1rem] border border-white/10 bg-stone-950/72 p-3 shadow-[0_14px_36px_rgba(0,0,0,0.24)]">
-      <div className="grid grid-cols-3 gap-2">
-        {displayedState.nobles.map((noble) => (
-          <NobleTile key={`panel-noble-${noble.id}`} noble={noble} size="compact" />
-        ))}
+      <div className="relative shrink-0 rounded-[1rem]">
+        <section className="relative z-10 shrink-0 rounded-[1rem] border border-white/10 bg-stone-950/72 p-2 shadow-[0_14px_36px_rgba(0,0,0,0.24)]">
+          <button
+            className={`flex w-full items-center gap-2 rounded-[0.8rem] px-0.5 text-left transition ${
+              selection?.type === 'bank' ? 'bg-white/5' : ''
+            } ${canSubmitRealtimeMoves && interaction.isCurrentUsersTurn && displayedState.turn.kind === 'main-action' ? 'active:scale-[0.995]' : ''}`}
+            disabled={!canSubmitRealtimeMoves || !interaction.isCurrentUsersTurn || displayedState.turn.kind !== 'main-action'}
+            onClick={() => setSelection({ type: 'bank' })}
+            type="button"
+          >
+            <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400">Bank</span>
+            <ChipStrip
+              counts={displayedState.bank}
+              highlightedColors={animationState.changedBankColors}
+              targetRefByColor={Object.fromEntries(
+                gemOrder.map((color) => [color, registerTarget(splendorAnimationTargets.bankChip(color))]),
+              ) as Partial<Record<GemColor, (node: HTMLSpanElement | null) => void>>}
+            />
+          </button>
+        </section>
       </div>
-    </section>
+
+      <div className="relative flex min-h-0 flex-1 flex-col rounded-[1rem]">
+        <section className="relative z-10 flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-[1rem] border border-white/10 bg-stone-950/72 p-2 shadow-[0_14px_36px_rgba(0,0,0,0.24)]">
+          <div className="overflow-x-auto pb-0.5">
+            <div className="flex justify-center gap-1.5">
+              {displayedState.nobles.map((noble) => (
+                <div
+                  className="w-15 shrink-0"
+                  key={`board-noble-${noble.id}`}
+                  ref={registerTarget(splendorAnimationTargets.nobleTile(noble.id))}
+                >
+                  {(() => {
+                    const claimMove = interaction.claimNobleMoves.find((move) => move.nobleId === noble.id);
+                    const canClaim =
+                      canSubmitRealtimeMoves &&
+                      interaction.isCurrentUsersTurn &&
+                      waitingForNoble &&
+                      Boolean(claimMove);
+
+                    return (
+                      <NobleTile
+                        isSelected={canClaim}
+                        noble={noble}
+                        size="tiny"
+                        {...(canClaim && claimMove
+                          ? {
+                              onPress: () => submitAndReset(claimMove),
+                            }
+                          : {})}
+                      />
+                    );
+                  })()}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="relative min-h-0 flex-1">
+            <div className="flex h-full min-h-0 flex-col gap-1.5 overflow-y-auto">
+              {cardTierOrder.map((tier) => (
+                <section className="px-0.5" key={`tier-${tier}`}>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    <div ref={registerTarget(splendorAnimationTargets.deck(tier))}>
+                      <DeckCard
+                        disabled={!canSubmitRealtimeMoves || !interaction.isCurrentUsersTurn || displayedState.turn.kind !== 'main-action'}
+                        isSelected={selection?.type === 'deck' && selection.tier === tier}
+                        onPress={() => setSelection({ type: 'deck', tier })}
+                        remainingCount={displayedState.decks[`tier${tier}`].length}
+                        size="compact"
+                        tier={tier}
+                      />
+                    </div>
+                    {displayedState.market[`tier${tier}`].map((card, index) => (
+                      <div key={card.id} ref={registerTarget(splendorAnimationTargets.marketSlot(tier, index))}>
+                        <div ref={registerTarget(splendorAnimationTargets.marketCard(card.id))}>
+                          {placeholderMarketCardIds.has(card.id) ? (
+                            <div className="aspect-[5/7] w-full rounded-[1.05rem] border border-dashed border-white/10 bg-white/3" />
+                          ) : (
+                            <SplendorCard
+                              card={card}
+                              isSelected={selection?.type === 'market-card' && selection.cardId === card.id}
+                              onPress={() => setSelection({ type: 'market-card', cardId: card.id })}
+                              size="compact"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
   );
 
   const renderLogPanel = () => (
@@ -1686,14 +1675,6 @@ export const SplendorGameView = ({
         title: 'Discard tokens',
         subtitle: `Discard ${displayedState.turn.kind === 'discard' ? displayedState.turn.requiredCount : 0} to complete the turn.`,
         content: renderDiscardSheet(),
-      };
-    }
-
-    if (visibleForcedSheet === 'noble') {
-      return {
-        title: 'Choose noble',
-        subtitle: 'Resolve the noble step before the turn can pass.',
-        content: renderNobleSheet(),
       };
     }
 
@@ -1749,7 +1730,6 @@ export const SplendorGameView = ({
   const actionSheetContent = renderActionSheetContent();
   const panelOptions = [
     { label: 'Board', value: 'board' },
-    { label: 'Nobles', value: 'nobles' },
     { label: 'Log', value: 'log' },
   ] as const;
   const renderCardAnimationObject = (
@@ -1767,7 +1747,13 @@ export const SplendorGameView = ({
       style={splendorAnimationCssVars as CSSProperties}
     >
       <div className="mx-auto flex h-full max-w-md flex-col gap-2 px-2 py-2 pb-18">
-        <header className="sticky top-0 z-30 rounded-[1rem] border border-white/10 bg-stone-950/90 px-2.5 py-2 shadow-[0_14px_36px_rgba(0,0,0,0.28)] backdrop-blur">
+        <header
+          className={`sticky top-0 z-30 rounded-[1rem] border px-2.5 py-2 shadow-[0_14px_36px_rgba(0,0,0,0.28)] backdrop-blur ${
+            interaction.isCurrentUsersTurn && displayedState.status !== 'finished'
+              ? 'border-sky-300/25 bg-[linear-gradient(180deg,rgba(8,47,73,0.9),rgba(12,24,36,0.92))]'
+              : 'border-white/10 bg-stone-950/90'
+          }`}
+        >
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
@@ -1779,7 +1765,9 @@ export const SplendorGameView = ({
                   {displayedState.status === 'finished' ? 'Finished' : 'Action'}
                 </span>
               </div>
-              <p className="truncate text-[12px] leading-4 text-stone-300">{currentTurnCopy(displayedState, activePlayerName)}</p>
+              <p className="truncate text-[12px] leading-4 text-stone-300">
+                {currentTurnCopy(displayedState, activePlayerName, interaction.isCurrentUsersTurn)}
+              </p>
             </div>
             {forcedSheet !== null && dismissedForcedSheet === forcedSheet ? (
               <button
@@ -1787,7 +1775,17 @@ export const SplendorGameView = ({
                 onClick={() => setDismissedForcedSheet(null)}
                 type="button"
               >
-                {forcedSheet === 'discard' ? 'Back to discard' : 'Back to noble'}
+                Back to discard
+              </button>
+            ) : null}
+            {waitingForNoble && interaction.isCurrentUsersTurn && interaction.skipNobleMove ? (
+              <button
+                className="rounded-full border border-amber-300/18 bg-amber-300/10 px-2.5 py-1 text-[11px] font-medium text-amber-50 transition hover:border-amber-300/30 hover:bg-amber-300/16"
+                disabled={!canSubmitRealtimeMoves}
+                onClick={() => submitAndReset(interaction.skipNobleMove!)}
+                type="button"
+              >
+                Skip noble
               </button>
             ) : null}
             {replaySelection === null && latestReplayEntry ? (
@@ -1916,7 +1914,7 @@ export const SplendorGameView = ({
           {showGameComplete && displayedState.status === 'finished' ? (
             <GameCompleteScreen game={displayedState} onViewBoard={() => setShowGameComplete(false)} playerSummaries={playerSummaries} />
           ) : (
-            <div className="relative flex min-h-0 flex-1 flex-col">
+            <div className="relative flex min-h-[22rem] flex-1 flex-col">
               {mainScrollFadeState.showTop ? (
                 <div aria-hidden="true" className={topScrollFadeClass} />
               ) : null}
@@ -1928,11 +1926,7 @@ export const SplendorGameView = ({
                 ref={mainScrollRef}
               >
                 <div className={activePanel === 'board' ? 'flex min-h-full flex-col' : 'space-y-2'}>
-                {activePanel === 'board'
-                  ? renderBoardPanel()
-                  : activePanel === 'nobles'
-                    ? renderNoblesPanel()
-                    : renderLogPanel()}
+                {activePanel === 'board' ? renderBoardPanel() : renderLogPanel()}
                 </div>
               </div>
             </div>
@@ -1995,7 +1989,7 @@ export const SplendorGameView = ({
           }
         >
           {actor.object.kind === 'noble' ? (
-            <NobleTile noble={actor.object.noble} size="compact" />
+            <NobleTile noble={actor.object.noble} size="tiny" />
           ) : actor.flipProgress !== undefined && actor.nextObject?.kind === 'card' ? (
             <div
               className="relative aspect-[5/7] w-full"

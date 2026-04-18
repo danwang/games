@@ -63,6 +63,14 @@ const deckSurfaceStyles: Readonly<Record<1 | 2 | 3, string>> = {
   3: 'border-sky-200/35 from-sky-700 via-blue-900 to-sky-950 text-sky-50',
 };
 
+const nobleRequirementBadgeStyles: Readonly<Record<TokenColor, string>> = {
+  white: 'border-stone-300/80 bg-stone-100/95 text-stone-950',
+  blue: 'border-sky-300/60 bg-sky-500/85 text-sky-50',
+  green: 'border-emerald-300/60 bg-emerald-500/85 text-emerald-50',
+  red: 'border-rose-300/60 bg-rose-500/85 text-rose-50',
+  black: 'border-stone-500/80 bg-stone-900/90 text-stone-50',
+};
+
 const nobleImageById: Readonly<Record<string, string>> = {
   'noble-1': noble01Image,
   'noble-2': noble02Image,
@@ -268,21 +276,45 @@ export interface NobleTileProps {
   readonly isSelected?: boolean;
   readonly noble: Noble;
   readonly onPress?: () => void;
-  readonly size?: 'compact' | 'full';
+  readonly size?: 'tiny' | 'compact' | 'full';
 }
 
 export const NobleTile = ({ isSelected = false, noble, onPress, size = 'compact' }: NobleTileProps) => {
-  const isCompact = size === 'compact';
+  const isTiny = size === 'tiny';
+  const isCompact = size === 'compact' || isTiny;
   const nobleImage = getNobleImageSrc(noble.id);
-  const cornerRadiusClass = isCompact ? 'rounded-[0.85rem]' : 'rounded-[1.15rem]';
+  const cornerRadiusClass = isTiny
+    ? 'rounded-[0.72rem]'
+    : isCompact
+      ? 'rounded-[0.85rem]'
+      : 'rounded-[1.15rem]';
+  const requirementColors = gemOrder.filter(
+    (color): color is TokenColor => color !== 'gold' && noble.requirement[color] > 0,
+  );
+  const requirementPositionClasses =
+    isTiny
+      ? requirementColors.length >= 3
+        ? ['right-0.5 top-0.5', 'left-0.5 bottom-0.5', 'right-0.5 bottom-0.5']
+        : ['left-0.5 bottom-0.5', 'right-0.5 bottom-0.5']
+      : requirementColors.length >= 3
+      ? [
+          'right-1.5 top-1.5',
+          'left-1.5 bottom-1.5',
+          'right-1.5 bottom-1.5',
+        ]
+      : ['left-1.5 bottom-1.5', 'right-1.5 bottom-1.5'];
 
   return (
     <button
       className={`relative w-full ${
-        isCompact ? `aspect-square ${cornerRadiusClass} p-2` : `${cornerRadiusClass} p-4`
+        isTiny
+          ? `aspect-square ${cornerRadiusClass} p-1`
+          : isCompact
+            ? `aspect-square ${cornerRadiusClass} p-2`
+            : `${cornerRadiusClass} p-4`
       } border bg-stone-950 text-left text-emerald-50 shadow-lg transition ${
         isSelected
-          ? 'border-emerald-300/80 outline-2 outline-offset-2 outline-emerald-300/55'
+          ? 'border-emerald-300/80 ring-2 ring-inset ring-emerald-300/70'
           : 'border-emerald-200/20'
       } ${typeof onPress === 'function' ? 'active:scale-[0.99]' : ''}`}
       disabled={typeof onPress !== 'function'}
@@ -292,22 +324,34 @@ export const NobleTile = ({ isSelected = false, noble, onPress, size = 'compact'
       <div className={`pointer-events-none absolute inset-0 overflow-hidden ${cornerRadiusClass}`}>
         <img alt="" aria-hidden="true" className="h-full w-full object-cover" src={nobleImage} />
       </div>
-      <div className="relative flex h-full flex-col">
-        <p className={`relative font-serif text-emerald-50 drop-shadow-sm ${isCompact ? 'text-lg' : 'mt-2 text-2xl'}`}>
+      <div className="relative h-full">
+        <span
+          className={`absolute left-0.5 top-0.5 inline-flex items-center justify-center font-serif font-semibold leading-none text-amber-50 drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)] ${
+            isTiny
+              ? 'text-[17px]'
+              : isCompact
+                ? 'rounded-[0.42rem] border border-black/20 bg-black/34 px-1 text-[15px] shadow-sm backdrop-blur-[1px]'
+                : 'left-2 top-2 rounded-[0.42rem] border border-black/18 bg-black/28 px-1.5 text-xl shadow-sm backdrop-blur-[1px]'
+          }`}
+        >
           {noble.points}
-        </p>
-        <div className={`relative mt-auto flex flex-wrap ${isCompact ? 'gap-1' : 'gap-2'}`}>
-          {gemOrder
-            .filter((color): color is TokenColor => color !== 'gold' && noble.requirement[color] > 0)
-            .map((color) => (
-              <GemPip
-                color={color}
-                count={noble.requirement[color]}
-                key={`${noble.id}-${color}`}
-                size={isCompact ? 'xs' : 'sm'}
-              />
-            ))}
-        </div>
+        </span>
+        {requirementColors.map((color, index) => (
+          <div
+            className={`absolute ${requirementPositionClasses[index] ?? requirementPositionClasses.at(-1)} ${
+              isTiny ? 'origin-center scale-[0.96]' : ''
+            }`}
+            key={`${noble.id}-${color}`}
+          >
+            <span
+              className={`inline-flex items-center justify-center rounded-[0.38rem] border font-bold leading-none shadow-sm ${
+                nobleRequirementBadgeStyles[color]
+              } ${isTiny ? 'h-[1.1rem] min-w-[1.1rem] px-1 text-[9px]' : 'h-5 min-w-5 px-1 text-[10px]'}`}
+            >
+              {noble.requirement[color]}
+            </span>
+          </div>
+        ))}
       </div>
     </button>
   );

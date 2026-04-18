@@ -7,6 +7,7 @@ export const splendorAnimationTargets = {
   deck: (tier: CardTier): SplendorAnimationTargetId => `deck:${tier}`,
   marketCard: (cardId: string): SplendorAnimationTargetId => `market:${cardId}`,
   marketSlot: (tier: CardTier, index: number): SplendorAnimationTargetId => `market-slot:${tier}:${index}`,
+  nobleTile: (nobleId: string): SplendorAnimationTargetId => `noble:${nobleId}`,
   playerChip: (playerId: string, color: GemColor): SplendorAnimationTargetId =>
     `player:${playerId}:chips:${color}`,
   playerNobles: (playerId: string): SplendorAnimationTargetId => `player:${playerId}:nobles`,

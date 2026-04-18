@@ -77,11 +77,12 @@ const SplendorTransitionHarness = ({
 };
 
 const nobleSkipAfter = applyMove(simulatedNobleState, { type: 'skip-noble' });
+const nobleTakeAfter = primaryHistory[88]!;
 const blindReserveAfter = applyMove(baseSplendorState, { type: 'reserve-deck', tier: 2 });
 
 const meta = {
   component: SplendorTransitionHarness,
-  title: 'Animation/Splendor Transitions',
+  title: 'Splendor/Animations',
   args: {
     afterState: primaryHistory[1]!,
     beforeState: primaryHistory[0]!,
@@ -169,6 +170,17 @@ export const NobleSkip: Story = {
   render: (_args, context) => (
     <SplendorTransitionHarness
       afterState={nobleSkipAfter}
+      beforeState={simulatedNobleState}
+      perspective={getStoryPerspective(context.globals.splendorPerspective)}
+    />
+  ),
+};
+
+export const NobleTake: Story = {
+  args: {},
+  render: (_args, context) => (
+    <SplendorTransitionHarness
+      afterState={nobleTakeAfter}
       beforeState={simulatedNobleState}
       perspective={getStoryPerspective(context.globals.splendorPerspective)}
     />

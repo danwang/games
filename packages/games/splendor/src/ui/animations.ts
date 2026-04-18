@@ -33,6 +33,7 @@ export interface SplendorAnimationTiming {
   readonly cardArrivalDurationMs: number;
   readonly cardExitOverlapMs: number;
   readonly cardExpandDurationMs: number;
+  readonly cardFlightDurationMs: number;
   readonly cardHoldPurchaseReservedMs: number;
   readonly cardHoldPurchaseVisibleMs: number;
   readonly cardLaunchBulgeMs: number;
@@ -53,14 +54,15 @@ export const splendorAnimationTiming: SplendorAnimationTiming = {
   cardArrivalDurationMs: 320,
   cardExitOverlapMs: 70,
   cardExpandDurationMs: 420,
+  cardFlightDurationMs: 1000,
   cardHoldPurchaseReservedMs: 400,
   cardHoldPurchaseVisibleMs: 100,
   cardLaunchBulgeMs: 180,
-  cardHoldReserveCompleteMs: 140,
+  cardHoldReserveCompleteMs: 35,
   cardHoldReserveRevealLeadMs: 600,
   cardHoldReserveVisibleMs: 100,
   chipImpactLeadMs: 200,
-  flightDurationMs: 1200,
+  flightDurationMs: 1150,
   flipDurationMs: 320,
   purchaseCardStaggerMs: 250,
   purchaseReservedChipDelayMs: 200,
@@ -70,6 +72,7 @@ export const splendorAnimationTiming: SplendorAnimationTiming = {
 
 export const splendorAnimationCssVars = {
   '--anim-bulge-ms': `${splendorAnimationTiming.bulgeDurationMs}ms`,
+  '--anim-card-flight-ms': `${splendorAnimationTiming.cardFlightDurationMs}ms`,
   '--anim-card-arrival-ms': `${splendorAnimationTiming.cardArrivalDurationMs}ms`,
   '--anim-card-expand-ms': `${splendorAnimationTiming.cardExpandDurationMs}ms`,
   '--anim-flight-ms': `${splendorAnimationTiming.flightDurationMs}ms`,
@@ -219,6 +222,14 @@ const createPostFlightPresentation = (
 ): SplendorState => ({
   ...nextGame,
   turn: previousGame.turn,
+});
+
+const createNobleClaimDeparturePresentation = (
+  previousGame: SplendorState,
+  nextGame: SplendorState,
+): SplendorState => ({
+  ...previousGame,
+  nobles: nextGame.nobles,
 });
 
 const createReservedPurchaseCardDeparturePresentation = (
@@ -441,7 +452,7 @@ const marketRevealActors = (
   previousGame: SplendorState,
   nextGame: SplendorState,
   delayMs: number,
-  handoffMs: number = splendorAnimationTiming.flightDurationMs,
+  handoffMs: number = splendorAnimationTiming.cardFlightDurationMs,
 ): readonly ReturnType<typeof actor<SplendorAnimationObject>>[] => {
   const revealDurationMs = splendorAnimationTiming.bulgeDurationMs;
   const postHandoffHoldMs = 40;
@@ -486,40 +497,57 @@ const marketRevealActors = (
   );
 };
 
-const buildCardExitTail = (settleDurationMs: number) => ({
-  opacity: [
-    hold(
-      Math.max(
-        settleDurationMs - splendorAnimationTiming.cardExitOverlapMs,
-        0,
-      ),
-    ),
-    tweenTo(0, {
-      durationMs:
-        splendorAnimationTiming.cardHoldReserveCompleteMs +
-        splendorAnimationTiming.cardExitOverlapMs,
-    }),
-  ] as const,
-  path: [
-    moveTo('self', {
-      durationMs: settleDurationMs,
-      y: 0,
-    }),
-    moveTo('self', {
-      durationMs: splendorAnimationTiming.cardHoldReserveCompleteMs,
-      x: 42,
-      y: -6,
-    }),
-  ] as const,
-  rotate: [
-    tweenTo(0, { durationMs: settleDurationMs }),
-    tweenTo(-4, { durationMs: splendorAnimationTiming.cardHoldReserveCompleteMs }),
-  ] as const,
-  scale: [
-    tweenTo(1, { durationMs: settleDurationMs }),
-    tweenTo(0.24, { durationMs: splendorAnimationTiming.cardHoldReserveCompleteMs }),
-  ] as const,
-});
+const buildCardExitTail = (settleDurationMs: number) => {
+  const exitDurationMs =
+    settleDurationMs + splendorAnimationTiming.cardHoldReserveCompleteMs;
+
+  return {
+    opacity: [
+      tweenTo(0, {
+        durationMs: exitDurationMs,
+      }),
+    ] as const,
+    path: [
+      moveTo('self', {
+        durationMs: exitDurationMs,
+        x: 42,
+        y: 0,
+      }),
+    ] as const,
+    rotate: [
+      tweenTo(0, { durationMs: exitDurationMs }),
+    ] as const,
+    scale: [
+      tweenTo(0.24, { durationMs: exitDurationMs }),
+    ] as const,
+  };
+};
+
+const buildNobleExitTail = (settleDurationMs: number) => {
+  const exitDurationMs =
+    settleDurationMs + splendorAnimationTiming.cardHoldReserveCompleteMs;
+
+  return {
+    opacity: [
+      tweenTo(0, {
+        durationMs: exitDurationMs,
+      }),
+    ] as const,
+    path: [
+      moveTo('self', {
+        durationMs: exitDurationMs,
+        x: 18,
+        y: 0,
+      }),
+    ] as const,
+    rotate: [
+      tweenTo(0, { durationMs: exitDurationMs }),
+    ] as const,
+    scale: [
+      tweenTo(0.34, { durationMs: exitDurationMs }),
+    ] as const,
+  };
+};
 
 const buildCardLaunchBulgePrefix = (preMoveDelayMs: number) => {
   const bulgeDurationMs = Math.min(
@@ -714,7 +742,7 @@ const animateReserveVisible = (
   const cardId = `card:reserve-visible:${reservedCard.id}`;
   const launchDelayMs = splendorAnimationTiming.cardLaunchBulgeMs;
   const launchPrefix = buildCardLaunchBulgePrefix(launchDelayMs);
-  const flightEndMs = launchDelayMs + splendorAnimationTiming.flightDurationMs;
+  const flightEndMs = launchDelayMs + splendorAnimationTiming.cardFlightDurationMs;
   const reserveRevealStartMs =
     flightEndMs - splendorAnimationTiming.cardHoldReserveRevealLeadMs;
   const exitTail = buildCardExitTail(splendorAnimationTiming.cardArrivalDurationMs);
@@ -751,7 +779,7 @@ const animateReserveVisible = (
           path: [
             ...launchPrefix.path,
             moveTo(splendorAnimationTargets.playerReserved(nextActor.identity.id), {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(splendorAnimationTiming.cardHoldReserveVisibleMs),
@@ -761,7 +789,7 @@ const animateReserveVisible = (
           rotate: [
             ...launchPrefix.rotate,
             tweenTo(-4, {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(splendorAnimationTiming.cardHoldReserveVisibleMs),
@@ -771,7 +799,7 @@ const animateReserveVisible = (
           scale: [
             ...launchPrefix.scale,
             tweenTo(0.76, {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(splendorAnimationTiming.cardHoldReserveVisibleMs),
@@ -853,14 +881,14 @@ const animateBlindReserve = (
         tracks: {
           opacity: [
             hold(
-              splendorAnimationTiming.flightDurationMs +
+              splendorAnimationTiming.cardFlightDurationMs +
                 splendorAnimationTiming.bulgeDurationMs,
             ),
             ...exitTail.opacity,
           ],
           path: [
             moveTo(splendorAnimationTargets.playerReserved(nextActor.identity.id), {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(splendorAnimationTiming.bulgeDurationMs),
@@ -868,7 +896,7 @@ const animateBlindReserve = (
           ],
           rotate: [
             tweenTo(-4, {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(splendorAnimationTiming.bulgeDurationMs),
@@ -876,7 +904,7 @@ const animateBlindReserve = (
           ],
           scale: [
             tweenTo(0.76, {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(splendorAnimationTiming.bulgeDurationMs),
@@ -888,9 +916,9 @@ const animateBlindReserve = (
     ],
     checkpoints: [
       checkpoint(0, departure),
-      checkpoint(splendorAnimationTiming.flightDurationMs, arrival),
+      checkpoint(splendorAnimationTiming.cardFlightDurationMs, arrival),
       checkpoint(
-        splendorAnimationTiming.flightDurationMs +
+        splendorAnimationTiming.cardFlightDurationMs +
           splendorAnimationTiming.bulgeDurationMs +
           splendorAnimationTiming.cardArrivalDurationMs +
           splendorAnimationTiming.cardHoldReserveCompleteMs +
@@ -905,13 +933,13 @@ const animateBlindReserve = (
       ),
       delayedBulge(
         splendorAnimationTargets.playerReserved(nextActor.identity.id),
-        splendorAnimationTiming.flightDurationMs + splendorAnimationTiming.bulgeDurationMs,
+        splendorAnimationTiming.cardFlightDurationMs + splendorAnimationTiming.bulgeDurationMs,
       ),
       ...arrivalEffects(
         previousGame,
         nextGame,
         nextActor.identity.id,
-        splendorAnimationTiming.flightDurationMs + splendorAnimationTiming.bulgeDurationMs,
+        splendorAnimationTiming.cardFlightDurationMs + splendorAnimationTiming.bulgeDurationMs,
       ),
     ],
   });
@@ -947,11 +975,11 @@ const animateMarketPurchase = (
   const launchPrefix = buildCardLaunchBulgePrefix(cardStartDelay);
   const marketRevealStartMs =
     cardStartDelay +
-    splendorAnimationTiming.flightDurationMs -
+    splendorAnimationTiming.cardFlightDurationMs -
     splendorAnimationTiming.cardHoldReserveRevealLeadMs;
   const settleStartMs =
     cardStartDelay +
-    splendorAnimationTiming.flightDurationMs +
+    splendorAnimationTiming.cardFlightDurationMs +
     splendorAnimationTiming.bulgeDurationMs;
   const exitTail = buildCardExitTail(splendorAnimationTiming.cardArrivalDurationMs);
 
@@ -962,7 +990,7 @@ const animateMarketPurchase = (
         previousGame,
         nextGame,
         marketRevealStartMs,
-        cardStartDelay + splendorAnimationTiming.flightDurationMs,
+        cardStartDelay + splendorAnimationTiming.cardFlightDurationMs,
       ),
       actor({
         id: `card:purchase-visible:${purchasedCard.id}`,
@@ -972,7 +1000,7 @@ const animateMarketPurchase = (
           opacity: [
             wait(cardStartDelay),
             hold(
-              splendorAnimationTiming.flightDurationMs +
+              splendorAnimationTiming.cardFlightDurationMs +
                 splendorAnimationTiming.bulgeDurationMs,
             ),
             ...exitTail.opacity,
@@ -980,7 +1008,7 @@ const animateMarketPurchase = (
           path: [
             ...launchPrefix.path,
             moveTo(splendorAnimationTargets.playerTableau(nextActor.identity.id), {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(splendorAnimationTiming.bulgeDurationMs),
@@ -989,7 +1017,7 @@ const animateMarketPurchase = (
           rotate: [
             ...launchPrefix.rotate,
             tweenTo(-4, {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(splendorAnimationTiming.bulgeDurationMs),
@@ -998,7 +1026,7 @@ const animateMarketPurchase = (
           scale: [
             ...launchPrefix.scale,
             tweenTo(0.76, {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(splendorAnimationTiming.bulgeDurationMs),
@@ -1010,7 +1038,7 @@ const animateMarketPurchase = (
     ],
     checkpoints: [
       checkpoint(0, departure),
-      checkpoint(cardStartDelay + splendorAnimationTiming.flightDurationMs, arrival),
+      checkpoint(cardStartDelay + splendorAnimationTiming.cardFlightDurationMs, arrival),
       checkpoint(
         settleStartMs +
           splendorAnimationTiming.cardArrivalDurationMs +
@@ -1022,7 +1050,7 @@ const animateMarketPurchase = (
     effects: [
       ...sourcePlayerChipTargets.map((target) => targetEffect(target, [bulge(splendorAnimationTiming.bulgeDurationMs)])),
       ...bankTargets.map((target) =>
-        delayedChipArrivalBulge(target, cardStartDelay + splendorAnimationTiming.flightDurationMs),
+        delayedChipArrivalBulge(target, cardStartDelay + splendorAnimationTiming.cardFlightDurationMs),
       ),
       delayedBulge(
         splendorAnimationTargets.playerTableau(nextActor.identity.id),
@@ -1083,7 +1111,7 @@ const animatePurchaseReserved = (
     moveStart +
     splendorAnimationTiming.purchaseReservedChipDelayMs +
     splendorAnimationTiming.flightDurationMs;
-  const cardArrival = moveStart + splendorAnimationTiming.flightDurationMs;
+  const cardArrival = moveStart + splendorAnimationTiming.cardFlightDurationMs;
   const settleStart = Math.max(bankArrival, cardArrival);
   const cardSettleDurationMs = splendorAnimationTiming.cardArrivalDurationMs;
   const exitTail = buildCardExitTail(cardSettleDurationMs);
@@ -1108,7 +1136,7 @@ const animatePurchaseReserved = (
           opacity: [
             hold(
               moveStart +
-                splendorAnimationTiming.flightDurationMs +
+                splendorAnimationTiming.cardFlightDurationMs +
                 Math.max(bankArrival - cardArrival, 0),
             ),
             ...exitTail.opacity,
@@ -1121,7 +1149,7 @@ const animatePurchaseReserved = (
             hold(splendorAnimationTiming.flipDurationMs),
             hold(splendorAnimationTiming.cardHoldPurchaseReservedMs),
             moveTo(splendorAnimationTargets.playerTableau(nextActor.identity.id), {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(Math.max(bankArrival - cardArrival, 0)),
@@ -1130,7 +1158,7 @@ const animatePurchaseReserved = (
           rotate: [
             hold(moveStart),
             tweenTo(-4, {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(Math.max(bankArrival - cardArrival, 0)),
@@ -1139,7 +1167,7 @@ const animatePurchaseReserved = (
           scale: [
             hold(moveStart),
             tweenTo(0.76, {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: splendorAnimationTiming.cardFlightDurationMs,
               easing: 'flight',
             }),
             hold(Math.max(bankArrival - cardArrival, 0)),
@@ -1189,7 +1217,8 @@ const animateNobleClaim = (
   previousGame: SplendorState,
   nextGame: SplendorState,
 ): Animation<SplendorState, SplendorAnimationObject> | null => {
-  const arrival = createPostFlightPresentation(previousGame, nextGame);
+  const departure = createNobleClaimDeparturePresentation(previousGame, nextGame);
+  const arrival = createPostFlightPresentation(departure, nextGame);
   const { nextActor, previousActor } = getActorPair(previousGame, nextGame);
 
   if (!previousActor || !nextActor) {
@@ -1204,35 +1233,56 @@ const animateNobleClaim = (
     return null;
   }
 
+  const exitTail = buildNobleExitTail(splendorAnimationTiming.cardArrivalDurationMs);
+  const flightEndMs = splendorAnimationTiming.cardFlightDurationMs;
+  const settleStart = flightEndMs;
+  const arrivalCheckpointMs =
+    flightEndMs +
+    splendorAnimationTiming.cardArrivalDurationMs +
+    splendorAnimationTiming.cardHoldReserveCompleteMs;
+
   return animation({
     actors: [
       actor({
         id: `noble:${noble.id}`,
-        mount: detached(splendorAnimationTargets.viewportNobleOrigin()),
+        mount: clone(splendorAnimationTargets.nobleTile(noble.id)),
         object: nobleObject(noble),
         tracks: {
           path: [
             moveTo(splendorAnimationTargets.playerNobles(nextActor.identity.id), {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: flightEndMs,
               easing: 'flight',
             }),
+            ...exitTail.path,
           ],
           scale: [
             tweenTo(0.94, {
-              durationMs: splendorAnimationTiming.flightDurationMs,
+              durationMs: flightEndMs,
               easing: 'flight',
             }),
+            ...exitTail.scale,
+          ],
+          rotate: [
+            tweenTo(-4, {
+              durationMs: flightEndMs,
+              easing: 'flight',
+            }),
+            ...exitTail.rotate,
+          ],
+          opacity: [
+            setValue(1),
+            hold(flightEndMs),
+            ...exitTail.opacity,
           ],
         },
         unmount: removeAtEnd(),
       }),
     ],
     checkpoints: [
-      checkpoint(0, previousGame),
-      checkpoint(splendorAnimationTiming.flightDurationMs, arrival),
+      checkpoint(0, departure),
+      checkpoint(arrivalCheckpointMs, arrival),
       checkpoint(
-        splendorAnimationTiming.flightDurationMs +
-          splendorAnimationTiming.settleDurationMs +
+        arrivalCheckpointMs +
           splendorAnimationTiming.turnHandoffGapMs,
         nextGame,
       ),
@@ -1240,14 +1290,14 @@ const animateNobleClaim = (
     effects: [
       delayedBulge(
         splendorAnimationTargets.playerNobles(nextActor.identity.id),
-        splendorAnimationTiming.flightDurationMs,
+        flightEndMs,
       ),
       delayedPulse(
         splendorAnimationTargets.playerScore(nextActor.identity.id),
-        splendorAnimationTiming.flightDurationMs,
+        flightEndMs,
         splendorAnimationTiming.settleDurationMs,
       ),
-      ...arrivalEffects(previousGame, nextGame, nextActor.identity.id, splendorAnimationTiming.flightDurationMs),
+      ...arrivalEffects(departure, nextGame, nextActor.identity.id, arrivalCheckpointMs),
     ],
   });
 };
