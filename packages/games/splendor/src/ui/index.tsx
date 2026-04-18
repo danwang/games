@@ -1808,10 +1808,6 @@ export const SplendorGameView = ({
                 <span className="truncate text-[10px] uppercase tracking-[0.18em] text-stone-400">
                   Room {roomCodeLabel(roomLabel)}
                 </span>
-                <span className="text-[10px] uppercase tracking-[0.18em] text-amber-300/80">•</span>
-                <span className="text-sm font-semibold text-amber-50">
-                  {displayedState.status === 'finished' ? 'Finished' : 'Action'}
-                </span>
               </div>
               <p className="truncate text-[12px] leading-4 text-stone-300">
                 {currentTurnCopy(displayedState, activePlayerName, interaction.isCurrentUsersTurn)}
