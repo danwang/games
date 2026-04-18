@@ -11,6 +11,7 @@ import { type ActiveRoomSnapshot, type PlayerSeat } from '@games/game-sdk';
 import { splendorDiscardScenario, splendorPrimaryScenario, splendorRecordedConfig, splendorRecordedPlayers } from './splendor-recorded-fixtures.js';
 
 const players = splendorRecordedPlayers satisfies readonly SplendorPlayerIdentity[];
+const twoPlayerStoryPlayers = players.slice(0, 2);
 
 const activeSeats: readonly PlayerSeat[] = players.map((player, index) => ({
   id: `seat-${index + 1}`,
@@ -19,12 +20,18 @@ const activeSeats: readonly PlayerSeat[] = players.map((player, index) => ({
 }));
 
 const config = splendorGameDefinition.normalizeConfig(splendorRecordedConfig);
+const twoPlayerConfig = splendorGameDefinition.normalizeConfig({
+  ...splendorRecordedConfig,
+  seatCount: 2,
+});
 
 const replayScenario = (
+  scenarioPlayers: readonly SplendorPlayerIdentity[],
+  scenarioConfig: typeof config,
   setupSeed: string,
   moves: readonly SplendorMove[],
 ): readonly SplendorState[] => {
-  const history: SplendorState[] = [setupGameWithSeed(players, config, setupSeed)];
+  const history: SplendorState[] = [setupGameWithSeed(scenarioPlayers, scenarioConfig, setupSeed)];
   let currentState = history[0]!;
 
   for (const move of moves) {
@@ -41,16 +48,28 @@ const replayScenario = (
   return history;
 };
 
+const twoPlayerHistory = replayScenario(
+  twoPlayerStoryPlayers,
+  twoPlayerConfig,
+  'storybook-two-player:setup',
+  [],
+);
+
 export const primaryHistory = replayScenario(
+  players,
+  config,
   splendorPrimaryScenario.setupSeed,
   splendorPrimaryScenario.moves,
 );
 export const discardHistory = replayScenario(
+  players,
+  config,
   splendorDiscardScenario.setupSeed,
   splendorDiscardScenario.moves,
 );
 
 export const baseSplendorState = primaryHistory[splendorPrimaryScenario.checkpoints.opening]!;
+export const twoPlayerSplendorState = twoPlayerHistory[0]!;
 export const simulatedMidgameState = primaryHistory[splendorPrimaryScenario.checkpoints.midgame]!;
 export const simulatedDiscardState = discardHistory[splendorDiscardScenario.checkpoints.discard]!;
 export const simulatedNobleState = primaryHistory[splendorPrimaryScenario.checkpoints.nobleChoice]!;
@@ -67,6 +86,24 @@ export const createSplendorRoom = (
   gameId: splendorGameDefinition.id,
   config: splendorGameDefinition.serializeConfig(config),
   seats: activeSeats,
+  stateVersion: 1,
+  state: splendorGameDefinition.serializeState(state),
+  status: state.status,
+  ...overrides,
+});
+
+export const createTwoPlayerSplendorRoom = (
+  state: SplendorState,
+  overrides: Partial<ActiveRoomSnapshot> = {},
+): ActiveRoomSnapshot => ({
+  id: 'splendor-two-player-story-room',
+  gameId: splendorGameDefinition.id,
+  config: splendorGameDefinition.serializeConfig(twoPlayerConfig),
+  seats: twoPlayerStoryPlayers.map((player, index) => ({
+    id: `seat-${index + 1}`,
+    playerId: player.id,
+    displayName: player.displayName,
+  })),
   stateVersion: 1,
   state: splendorGameDefinition.serializeState(state),
   status: state.status,

@@ -10,10 +10,12 @@ import {
   createSplendorPlayerView,
   createPrimaryRoomHistoryThrough,
   createReplayHistory,
+  createTwoPlayerSplendorRoom,
   getSplendorPerspectivePlayerId,
   createSplendorRoom,
   splendorStoryPlayerId,
   type SplendorStoryPerspective,
+  twoPlayerSplendorState,
   withDiscardPhase,
   withFinishedGame,
   withNobleChoice,
@@ -71,6 +73,24 @@ export const OpeningTurn: Story = {
   args: {
     room: createSplendorRoom(baseSplendorState),
     roomHistory: createPrimaryRoomHistoryThrough(0),
+  },
+};
+
+export const TwoPlayers: Story = {
+  render: (args, context) => {
+    const perspective = getStoryPerspective(context.globals.splendorPerspective);
+    const playerId = getSplendorPerspectivePlayerId(twoPlayerSplendorState, perspective);
+
+    return renderRoomScreen(
+      createTwoPlayerSplendorRoom(twoPlayerSplendorState),
+      playerId,
+      args,
+      [createTwoPlayerSplendorRoom(twoPlayerSplendorState)],
+    );
+  },
+  args: {
+    room: createTwoPlayerSplendorRoom(twoPlayerSplendorState),
+    roomHistory: [createTwoPlayerSplendorRoom(twoPlayerSplendorState)],
   },
 };
 

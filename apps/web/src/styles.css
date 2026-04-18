@@ -163,6 +163,25 @@
   }
 }
 
+@keyframes active-turn-panel-pulse {
+  0%,
+  100% {
+    border-color: rgba(125, 211, 252, 0.2);
+    box-shadow:
+      0 0 0 1px rgba(125, 211, 252, 0.08),
+      0 14px 36px rgba(0, 0, 0, 0.24),
+      0 0 14px rgba(56, 189, 248, 0.08);
+  }
+
+  50% {
+    border-color: rgba(125, 211, 252, 0.34);
+    box-shadow:
+      0 0 0 1px rgba(125, 211, 252, 0.14),
+      0 14px 36px rgba(0, 0, 0, 0.24),
+      0 0 24px rgba(56, 189, 248, 0.16);
+  }
+}
+
 @keyframes score-flip {
   0% {
     opacity: 0.3;
@@ -325,6 +344,10 @@
   stroke: rgba(56, 189, 248, 0.44);
   stroke-dasharray: 8 92;
   stroke-width: 3.2px;
+}
+
+.active-turn-panel-pulse {
+  animation: active-turn-panel-pulse 2.8s ease-in-out infinite;
 }
 
 .receive-bulge {

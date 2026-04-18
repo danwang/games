@@ -545,6 +545,7 @@ const PlayerSummaryRow = ({
 }) => {
   const isCurrentUser = player.id === currentUserId;
   const isWaitingOnOpponent = !isReplayMode && isActivePlayer && !isCurrentUser;
+  const showActiveRowGlow = !isReplayMode && isActivePlayer && isCurrentUser;
   const showTurnGlow = false;
   const totalTableauCards = tokenColorOrder.reduce(
     (sum, color) => sum + player.tableauBonuses[color],
@@ -566,7 +567,9 @@ const PlayerSummaryRow = ({
           !isReplayMode && isActivePlayer
             ? 'border-sky-300/35 bg-sky-400/8'
             : 'border-white/8 bg-white/3'
-        } ${isRecentlyUpdated ? 'player-row-receive' : ''}`}
+        } ${showActiveRowGlow ? 'active-turn-panel-pulse shadow-[0_0_0_1px_rgba(125,211,252,0.08),0_8px_24px_rgba(14,165,233,0.08)]' : ''} ${
+          isRecentlyUpdated ? 'player-row-receive' : ''
+        }`}
         onClick={onPress}
         type="button"
       >
@@ -1579,7 +1582,7 @@ export const SplendorGameView = ({
   );
 
   const renderBoardPanel = () => (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="relative shrink-0 rounded-[1rem]">
         <section className="relative z-10 shrink-0 rounded-[1rem] border border-white/10 bg-stone-950/72 p-2 shadow-[0_14px_36px_rgba(0,0,0,0.24)]">
           <button
@@ -1941,67 +1944,61 @@ export const SplendorGameView = ({
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col gap-2">
-          {!(showGameComplete && displayedState.status === 'finished') ? (
-            <section className="min-h-[7.75rem] flex-[0_1_auto] overflow-hidden rounded-[1rem] border border-white/10 bg-stone-950/72 shadow-[0_14px_36px_rgba(0,0,0,0.24)]">
-              <div className="relative h-full max-h-full">
-                <div className="h-full max-h-full overflow-y-auto p-2">
-                <div className="space-y-1.5">
-                  {playerSummaries.map((player) => {
-                    return (
-                      <PlayerSummaryRow
-                        chipTargetRefByColor={Object.fromEntries(
-                          gemOrder.map((color) => [
-                            color,
-                            registerTarget(splendorAnimationTargets.playerChip(player.id, color)),
-                          ]),
-                        ) as Partial<Record<GemColor, (node: HTMLSpanElement | null) => void>>}
-                        currentUserId={playerId ?? undefined}
-                        isActivePlayer={activePlayer?.identity.id === player.id}
-                        isReplayMode={isReplayMode}
-                        isRecentlyUpdated={animationState.changedPlayerIds.includes(player.id)}
-                        key={`summary-${player.id}`}
-                        nobleTargetRef={registerTarget(splendorAnimationTargets.playerNobles(player.id))}
-                        onPress={() => setSelection({ type: 'player', playerId: player.id })}
-                        player={player}
-                        playerAnimation={playerAnimations[player.id] ?? emptyPlayerReceiveAnimation}
-                        rowRef={registerTarget(splendorAnimationTargets.playerRow(player.id)) as (node: HTMLButtonElement | null) => void}
-                        scoreTargetRef={registerTarget(splendorAnimationTargets.playerScore(player.id)) as (node: HTMLParagraphElement | null) => void}
-                        sourceChipBulges={sourceChipBulges.playerColorsById[player.id] ?? []}
-                        tableauBonusTargetRefByColor={Object.fromEntries(
-                          tokenColorOrder.map((color) => [
-                            color,
-                            registerTarget(splendorAnimationTargets.playerTableauBonus(player.id, color)),
-                          ]),
-                        ) as Partial<Record<TokenColor, (node: HTMLSpanElement | null) => void>>}
-                        tableauTargetRef={registerTarget(splendorAnimationTargets.playerTableau(player.id))}
-                      />
-                    );
-                  })}
-                </div>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
           {showGameComplete && displayedState.status === 'finished' ? (
             <GameCompleteScreen game={displayedState} onViewBoard={() => setShowGameComplete(false)} playerSummaries={playerSummaries} />
           ) : (
-            <div className="relative flex min-h-[22rem] flex-1 flex-col">
-              {mainScrollFadeState.showTop ? (
-                <div aria-hidden="true" className={topScrollFadeClass} />
-              ) : null}
-              {mainScrollFadeState.showBottom ? (
-                <div aria-hidden="true" className={bottomScrollFadeClass} />
-              ) : null}
-              <div
-                className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
-                ref={mainScrollRef}
-              >
-                <div className="flex min-h-full flex-col">
-                  {renderBoardPanel()}
+            <>
+              <section className="relative min-h-0 flex-1 overflow-hidden rounded-[1rem] border border-white/10 bg-stone-950/72 shadow-[0_14px_36px_rgba(0,0,0,0.24)]">
+                {mainScrollFadeState.showTop ? (
+                  <div aria-hidden="true" className={topScrollFadeClass} />
+                ) : null}
+                {mainScrollFadeState.showBottom ? (
+                  <div aria-hidden="true" className={bottomScrollFadeClass} />
+                ) : null}
+                <div
+                  className="h-full overflow-y-auto overscroll-contain p-2"
+                  ref={mainScrollRef}
+                >
+                  <div className="space-y-1.5">
+                    {playerSummaries.map((player) => {
+                      return (
+                        <PlayerSummaryRow
+                          chipTargetRefByColor={Object.fromEntries(
+                            gemOrder.map((color) => [
+                              color,
+                              registerTarget(splendorAnimationTargets.playerChip(player.id, color)),
+                            ]),
+                          ) as Partial<Record<GemColor, (node: HTMLSpanElement | null) => void>>}
+                          currentUserId={playerId ?? undefined}
+                          isActivePlayer={activePlayer?.identity.id === player.id}
+                          isReplayMode={isReplayMode}
+                          isRecentlyUpdated={animationState.changedPlayerIds.includes(player.id)}
+                          key={`summary-${player.id}`}
+                          nobleTargetRef={registerTarget(splendorAnimationTargets.playerNobles(player.id))}
+                          onPress={() => setSelection({ type: 'player', playerId: player.id })}
+                          player={player}
+                          playerAnimation={playerAnimations[player.id] ?? emptyPlayerReceiveAnimation}
+                          rowRef={registerTarget(splendorAnimationTargets.playerRow(player.id)) as (node: HTMLButtonElement | null) => void}
+                          scoreTargetRef={registerTarget(splendorAnimationTargets.playerScore(player.id)) as (node: HTMLParagraphElement | null) => void}
+                          sourceChipBulges={sourceChipBulges.playerColorsById[player.id] ?? []}
+                          tableauBonusTargetRefByColor={Object.fromEntries(
+                            tokenColorOrder.map((color) => [
+                              color,
+                              registerTarget(splendorAnimationTargets.playerTableauBonus(player.id, color)),
+                            ]),
+                          ) as Partial<Record<TokenColor, (node: HTMLSpanElement | null) => void>>}
+                          tableauTargetRef={registerTarget(splendorAnimationTargets.playerTableau(player.id))}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
+              </section>
+
+              <div className="flex-none">
+                {renderBoardPanel()}
               </div>
-            </div>
+            </>
           )}
         </div>
       </div>
