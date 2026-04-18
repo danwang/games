@@ -99,7 +99,7 @@ export interface GameDefinition<TConfig, TState, TMove, TPlayerView, TEvent = ne
   readonly deserializeState: (value: SerializedValue) => TState;
   readonly serializeMove: (move: TMove) => SerializedValue;
   readonly deserializeMove: (value: SerializedValue) => TMove;
-  readonly getRoomStatus: (state: TState) => RoomStatus;
+  readonly getRoomStatus: (state: TState) => ActiveRoomStatus;
   readonly getSeatCount: (config: TConfig) => number;
 }
 
