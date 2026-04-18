@@ -8,17 +8,51 @@ import {
   baseSplendorState,
   createSplendorPlayerView,
   getSplendorPerspectivePlayerId,
+  getSplendorActivePlayerId,
   type SplendorStoryPerspective,
   withDiscardPhase,
   withNobleChoice,
   withReservedPressure,
 } from './splendor-story-helpers.js';
 
+const tokenColorOrder = ['white', 'blue', 'green', 'red', 'black'] as const;
+
 const reservedPressureState = withReservedPressure();
 const discardPhaseState = withDiscardPhase();
 const nobleChoiceState = withNobleChoice();
 const getStoryPerspective = (value: unknown): SplendorStoryPerspective =>
   value === 'other' ? 'other' : 'active';
+
+const goldShortageCard =
+  [...baseSplendorState.market.tier1, ...baseSplendorState.market.tier2, ...baseSplendorState.market.tier3].find(
+    (card) => tokenColorOrder.reduce((sum, color) => sum + card.cost[color], 0) >= 3,
+  ) ?? baseSplendorState.market.tier1[0]!;
+
+const goldShortageState = (() => {
+  const activePlayerId = getSplendorActivePlayerId(baseSplendorState);
+  const supportColor =
+    tokenColorOrder.find((color) => goldShortageCard.cost[color] > 0) ?? tokenColorOrder[0];
+  const totalCost = tokenColorOrder.reduce((sum, color) => sum + goldShortageCard.cost[color], 0);
+
+  return {
+    ...baseSplendorState,
+    players: baseSplendorState.players.map((player) =>
+      player.identity.id !== activePlayerId
+        ? player
+        : {
+            ...player,
+            tokens: {
+              white: supportColor === 'white' ? 1 : 0,
+              blue: supportColor === 'blue' ? 1 : 0,
+              green: supportColor === 'green' ? 1 : 0,
+              red: supportColor === 'red' ? 1 : 0,
+              black: supportColor === 'black' ? 1 : 0,
+              gold: Math.max(totalCost - 1, 1),
+            },
+          },
+    ),
+  };
+})();
 
 const renderSplendorStory = (
   state: typeof baseSplendorState,
@@ -124,6 +158,21 @@ export const MarketCardModal: Story = {
     ),
   args: {
     initialSelection: { type: 'market-card', cardId: baseSplendorState.market.tier1[0]!.id },
+  },
+};
+
+export const MarketCardModalNeedsGold: Story = {
+  render: (_args, context) =>
+    renderSplendorStory(
+      goldShortageState,
+      { type: 'market-card', cardId: goldShortageCard.id },
+      2,
+      getStoryPerspective(context.globals.splendorPerspective),
+    ),
+  args: {
+    initialSelection: { type: 'market-card', cardId: goldShortageCard.id },
+    roomStateVersion: 2,
+    state: goldShortageState,
   },
 };
 

@@ -106,6 +106,9 @@ importers:
       '@games/game-sdk':
         specifier: workspace:*
         version: link:../../game-sdk
+      react:
+        specifier: ^19.2.4
+        version: 19.2.5
 
   packages/games/splendor:
     dependencies:

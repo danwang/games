@@ -1079,6 +1079,7 @@ export const SplendorGameView = ({
     const manualPaymentValid =
       activePlayer !== null && isValidPaymentForCard(activePlayer, card, purchaseSelection);
     const totalEffectiveCost = tokenColorOrder.reduce((sum, color) => sum + effectiveCost[color], 0);
+    const autoGoldCount = autoPayment?.gold ?? 0;
 
     const addPaymentToken = (color: GemColor) => {
       if (!activePlayer || totalSelectedPayment(purchaseSelection) >= totalEffectiveCost) {
@@ -1146,8 +1147,12 @@ export const SplendorGameView = ({
                   .map((color) => (
                     <GemPip color={color} count={effectiveCost[color]} key={`effective-${card.id}-${color}`} size="sm" />
                   ))}
+                {autoGoldCount > 0 ? <GemPip color="gold" count={autoGoldCount} key={`effective-${card.id}-gold`} size="sm" /> : null}
                 {totalEffectiveCost === 0 ? <span className="text-sm text-stone-400">Free with discounts</span> : null}
               </div>
+              {autoGoldCount > 0 ? (
+                <p className="text-sm text-amber-200/80">Auto-buy needs {autoGoldCount} gold.</p>
+              ) : null}
             </section>
 
             <section className="space-y-2">
@@ -1220,7 +1225,13 @@ export const SplendorGameView = ({
                         </button>
                       );
                     })}
-                  {manualSelectedCount === 0 ? <p className="text-sm text-stone-500">Auto-buy will spend the fewest gold.</p> : null}
+                  {manualSelectedCount === 0 ? (
+                    <p className="text-sm text-stone-500">
+                      {autoGoldCount > 0
+                        ? `Auto-buy will spend ${autoGoldCount} gold.`
+                        : 'Auto-buy will spend the fewest gold.'}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -1250,7 +1261,11 @@ export const SplendorGameView = ({
             }}
             type="button"
           >
-            {manualSelectedCount > 0 ? 'Buy' : 'Auto-buy'}
+            {manualSelectedCount > 0
+              ? 'Buy'
+              : autoGoldCount > 0
+                ? `Auto-buy (${autoGoldCount} gold)`
+                : 'Auto-buy'}
           </button>
           {source === 'market' ? (
             <button
