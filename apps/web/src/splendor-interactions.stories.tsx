@@ -1,11 +1,15 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { ComponentProps } from 'react';
+import type { ActiveRoomSnapshot } from '@games/game-sdk';
 
 import { SplendorGameView } from '@games/splendor/ui';
+import { splendorGameDefinition } from '@games/splendor';
 
 import { PageBackdrop } from './page-backdrop.js';
 import {
   baseSplendorState,
+  createDiscardRoomHistoryThrough,
+  createPrimaryRoomHistoryThrough,
   createSplendorPlayerView,
   getSplendorPerspectivePlayerId,
   getSplendorActivePlayerId,
@@ -59,17 +63,29 @@ const renderSplendorStory = (
   selection: ComponentProps<typeof SplendorGameView>['initialSelection'],
   roomStateVersion: number,
   perspective: SplendorStoryPerspective,
+  roomHistory: readonly ActiveRoomSnapshot[] | undefined = undefined,
 ) => {
   const playerId = getSplendorPerspectivePlayerId(state, perspective);
   const isActivePerspective = playerId === state.players[state.turn.activePlayerIndex]?.identity.id;
   const selectionProps =
     selection === undefined || !isActivePerspective ? {} : { initialSelection: selection };
+  const roomHistoryProps =
+    roomHistory === undefined
+      ? {}
+      : {
+          roomHistory: roomHistory.map((entry) => ({
+            state: splendorGameDefinition.deserializeState(entry.state),
+            stateVersion: entry.stateVersion,
+            status: entry.status,
+          })),
+        };
 
   return (
     <PageBackdrop>
       <SplendorGameView
         gameId="splendor"
         {...selectionProps}
+        {...roomHistoryProps}
         leaveRoom={() => undefined}
         playerId={playerId}
         playerView={createSplendorPlayerView(state, playerId)}
@@ -118,7 +134,13 @@ const activePlayerSheetId =
 
 export const OpeningTurnClickable: Story = {
   render: (_args, context) =>
-    renderSplendorStory(baseSplendorState, null, 1, getStoryPerspective(context.globals.splendorPerspective)),
+    renderSplendorStory(
+      baseSplendorState,
+      null,
+      1,
+      getStoryPerspective(context.globals.splendorPerspective),
+      createPrimaryRoomHistoryThrough(0),
+    ),
 };
 
 export const MidgameClickable: Story = {
@@ -126,11 +148,12 @@ export const MidgameClickable: Story = {
     renderSplendorStory(
       reservedPressureState,
       null,
-      8,
+      41,
       getStoryPerspective(context.globals.splendorPerspective),
+      createPrimaryRoomHistoryThrough(40),
     ),
   args: {
-    roomStateVersion: 8,
+    roomStateVersion: 41,
     state: reservedPressureState,
   },
 };
@@ -142,6 +165,7 @@ export const BankSheet: Story = {
       { type: 'bank' },
       1,
       getStoryPerspective(context.globals.splendorPerspective),
+      createPrimaryRoomHistoryThrough(0),
     ),
   args: {
     initialSelection: { type: 'bank' },
@@ -155,6 +179,7 @@ export const MarketCardSheet: Story = {
       { type: 'market-card', cardId: baseSplendorState.market.tier1[0]!.id },
       1,
       getStoryPerspective(context.globals.splendorPerspective),
+      createPrimaryRoomHistoryThrough(0),
     ),
   args: {
     initialSelection: { type: 'market-card', cardId: baseSplendorState.market.tier1[0]!.id },
@@ -168,6 +193,7 @@ export const MarketCardSheetNeedsGold: Story = {
       { type: 'market-card', cardId: goldShortageCard.id },
       2,
       getStoryPerspective(context.globals.splendorPerspective),
+      createPrimaryRoomHistoryThrough(0),
     ),
   args: {
     initialSelection: { type: 'market-card', cardId: goldShortageCard.id },
@@ -181,12 +207,13 @@ export const ReservedCardSheet: Story = {
     renderSplendorStory(
       reservedPressureState,
       { type: 'reserved-card', cardId: reservedCardId },
-      8,
+      41,
       getStoryPerspective(context.globals.splendorPerspective),
+      createPrimaryRoomHistoryThrough(40),
     ),
   args: {
     initialSelection: { type: 'reserved-card', cardId: reservedCardId },
-    roomStateVersion: 8,
+    roomStateVersion: 41,
     state: reservedPressureState,
   },
 };
@@ -198,6 +225,7 @@ export const DeckSheet: Story = {
       { type: 'deck', tier: 2 },
       1,
       getStoryPerspective(context.globals.splendorPerspective),
+      createPrimaryRoomHistoryThrough(0),
     ),
   args: {
     initialSelection: { type: 'deck', tier: 2 },
@@ -209,12 +237,13 @@ export const PlayerSheet: Story = {
     renderSplendorStory(
       reservedPressureState,
       { type: 'player', playerId: activePlayerSheetId },
-      8,
+      41,
       getStoryPerspective(context.globals.splendorPerspective),
+      createPrimaryRoomHistoryThrough(40),
     ),
   args: {
     initialSelection: { type: 'player', playerId: activePlayerSheetId },
-    roomStateVersion: 8,
+    roomStateVersion: 41,
     state: reservedPressureState,
   },
 };

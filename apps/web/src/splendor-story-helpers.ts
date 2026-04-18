@@ -105,6 +105,24 @@ export const createReplayHistory = (): readonly ActiveRoomSnapshot[] => [
   }),
 ];
 
+const createRoomHistoryThrough = (
+  history: readonly SplendorState[],
+  inclusiveIndex: number,
+): readonly ActiveRoomSnapshot[] =>
+  history.slice(0, inclusiveIndex + 1).map((state, index) =>
+    createSplendorRoom(state, {
+      stateVersion: index + 1,
+    }),
+  );
+
+export const createPrimaryRoomHistoryThrough = (
+  inclusiveIndex: number,
+): readonly ActiveRoomSnapshot[] => createRoomHistoryThrough(primaryHistory, inclusiveIndex);
+
+export const createDiscardRoomHistoryThrough = (
+  inclusiveIndex: number,
+): readonly ActiveRoomSnapshot[] => createRoomHistoryThrough(discardHistory, inclusiveIndex);
+
 export const withDiscardPhase = (): SplendorState => simulatedDiscardState;
 
 export const withNobleChoice = (): SplendorState => simulatedNobleState;

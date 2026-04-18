@@ -6,7 +6,9 @@ import { GameRoomScreen } from './game-room-screen.js';
 import { PageBackdrop } from './page-backdrop.js';
 import {
   baseSplendorState,
+  createDiscardRoomHistoryThrough,
   createSplendorPlayerView,
+  createPrimaryRoomHistoryThrough,
   createReplayHistory,
   getSplendorPerspectivePlayerId,
   createSplendorRoom,
@@ -27,12 +29,14 @@ const renderRoomScreen = (
   room: ReturnType<typeof createSplendorRoom>,
   playerId: string,
   overrides: Omit<React.ComponentProps<typeof GameRoomScreen>, 'playerId' | 'room'>,
+  roomHistory: readonly ReturnType<typeof createSplendorRoom>[] = [],
 ) => (
   <PageBackdrop>
     <GameRoomScreen
       {...overrides}
       playerId={playerId}
       room={room}
+      roomHistory={roomHistory}
     />
   </PageBackdrop>
 );
@@ -62,56 +66,60 @@ export const OpeningTurn: Story = {
     const perspective = getStoryPerspective(context.globals.splendorPerspective);
     const playerId = getSplendorPerspectivePlayerId(baseSplendorState, perspective);
 
-    return renderRoomScreen(createSplendorRoom(baseSplendorState), playerId, args);
+    return renderRoomScreen(createSplendorRoom(baseSplendorState), playerId, args, createPrimaryRoomHistoryThrough(0));
   },
   args: {
     room: createSplendorRoom(baseSplendorState),
+    roomHistory: createPrimaryRoomHistoryThrough(0),
   },
 };
 
 export const DenseMidgame: Story = {
   render: (args, context) => {
     const perspective = getStoryPerspective(context.globals.splendorPerspective);
-    const room = createSplendorRoom(withReservedPressure(), { stateVersion: 8 });
+    const room = createSplendorRoom(withReservedPressure(), { stateVersion: 41 });
     const state = splendorGameDefinition.deserializeState(room.state);
     const playerId = getSplendorPerspectivePlayerId(state, perspective);
 
-    return renderRoomScreen(room, playerId, args);
+    return renderRoomScreen(room, playerId, args, createPrimaryRoomHistoryThrough(40));
   },
   args: {
     room: createSplendorRoom(withReservedPressure(), {
-      stateVersion: 8,
+      stateVersion: 41,
     }),
+    roomHistory: createPrimaryRoomHistoryThrough(40),
   },
 };
 
 export const DiscardPhase: Story = {
   render: (args, context) => {
     const perspective = getStoryPerspective(context.globals.splendorPerspective);
-    const room = createSplendorRoom(discardPhaseState, { stateVersion: 11 });
+    const room = createSplendorRoom(discardPhaseState, { stateVersion: 30 });
     const playerId = getSplendorPerspectivePlayerId(discardPhaseState, perspective);
 
-    return renderRoomScreen(room, playerId, args);
+    return renderRoomScreen(room, playerId, args, createDiscardRoomHistoryThrough(29));
   },
   args: {
     room: createSplendorRoom(discardPhaseState, {
-      stateVersion: 11,
+      stateVersion: 30,
     }),
+    roomHistory: createDiscardRoomHistoryThrough(29),
   },
 };
 
 export const NobleChoice: Story = {
   render: (args, context) => {
     const perspective = getStoryPerspective(context.globals.splendorPerspective);
-    const room = createSplendorRoom(nobleChoiceState, { stateVersion: 13 });
+    const room = createSplendorRoom(nobleChoiceState, { stateVersion: 88 });
     const playerId = getSplendorPerspectivePlayerId(nobleChoiceState, perspective);
 
-    return renderRoomScreen(room, playerId, args);
+    return renderRoomScreen(room, playerId, args, createPrimaryRoomHistoryThrough(87));
   },
   args: {
     room: createSplendorRoom(nobleChoiceState, {
-      stateVersion: 13,
+      stateVersion: 88,
     }),
+    roomHistory: createPrimaryRoomHistoryThrough(87),
   },
 };
 
@@ -119,16 +127,17 @@ export const Finished: Story = {
   render: (args, context) => {
     const perspective = getStoryPerspective(context.globals.splendorPerspective);
     const state = withFinishedGame();
-    const room = createSplendorRoom(state, { stateVersion: 21, status: 'finished' });
+    const room = createSplendorRoom(state, { stateVersion: 101, status: 'finished' });
     const playerId = getSplendorPerspectivePlayerId(state, perspective);
 
-    return renderRoomScreen(room, playerId, args);
+    return renderRoomScreen(room, playerId, args, createPrimaryRoomHistoryThrough(100));
   },
   args: {
     room: createSplendorRoom(withFinishedGame(), {
-      stateVersion: 21,
+      stateVersion: 101,
       status: 'finished',
     }),
+    roomHistory: createPrimaryRoomHistoryThrough(100),
   },
 };
 
@@ -151,7 +160,7 @@ export const ReplayLog: Story = {
       <PageBackdrop>
         <SplendorGameView
           gameId="splendor"
-          initialPanel="log"
+          initialSelection={{ type: 'log' }}
           leaveRoom={() => undefined}
           playerId={playerId}
           playerView={createSplendorPlayerView(state, playerId)}

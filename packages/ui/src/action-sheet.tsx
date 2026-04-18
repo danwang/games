@@ -50,7 +50,7 @@ export const ActionSheet = ({
     <div className="fixed inset-0 z-40">
       <button
         aria-label="Close action sheet"
-        className={`absolute inset-0 bg-stone-950/28 backdrop-blur-[2px] transition duration-[260ms] ease-out ${
+        className={`absolute inset-0 bg-stone-950/28 backdrop-blur-[1px] transition duration-[260ms] ease-out ${
           isVisible ? 'opacity-100' : 'opacity-0'
         }`}
         disabled={!onClose}
@@ -59,7 +59,7 @@ export const ActionSheet = ({
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-3 pb-3 sm:px-6 sm:pb-6">
         <div
-          className={`pointer-events-auto w-full max-w-2xl overflow-hidden rounded-[1.9rem] border border-amber-200/15 bg-stone-950/96 shadow-[0_-18px_64px_rgba(0,0,0,0.55)] backdrop-blur transition duration-[260ms] ease-out ${
+          className={`pointer-events-auto w-full max-w-2xl overflow-hidden rounded-[1.9rem] border border-amber-200/15 bg-stone-950/96 shadow-[0_-18px_64px_rgba(0,0,0,0.55)] backdrop-blur-[2px] transition duration-[260ms] ease-out ${
             isVisible
               ? 'translate-y-0 scale-100 opacity-100'
               : 'translate-y-6 scale-[0.96] opacity-0'

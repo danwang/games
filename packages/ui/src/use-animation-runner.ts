@@ -32,10 +32,7 @@ export const useAnimationRunner = <TSnapshot, TObject>({
   );
   const rafRef = useRef<number | null>(null);
   const deriveAnimationRef = useRef(deriveAnimation);
-
-  useEffect(() => {
-    deriveAnimationRef.current = deriveAnimation;
-  }, [deriveAnimation]);
+  deriveAnimationRef.current = deriveAnimation;
 
   const animation = useMemo(
     () =>
@@ -44,7 +41,6 @@ export const useAnimationRunner = <TSnapshot, TObject>({
         canonicalSnapshot,
       ),
     // canonicalSnapshot / resetKey are the actual lifecycle inputs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [canonicalSnapshot, initialPresentedSnapshot, resetKey],
   );
 
@@ -66,6 +62,7 @@ export const useAnimationRunner = <TSnapshot, TObject>({
       return;
     }
 
+    setFrame(sampleAnimation(compiled, resolveTargetRect, 0));
     const startedAt = performance.now();
 
     const tick = (now: number) => {

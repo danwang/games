@@ -1,5 +1,5 @@
 import { type ActiveEffectMap, type ResolvedActorFrame } from '@games/animation-core';
-import { ActionSheet, SegmentedControl, useAnimationRunner } from '@games/ui';
+import { ActionSheet, useAnimationRunner } from '@games/ui';
 import { type GameClientModule, type GameRenderProps } from '@games/game-sdk';
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -38,11 +38,11 @@ type Selection =
   | { readonly type: 'reserved-card'; readonly cardId: string }
   | { readonly type: 'deck'; readonly tier: CardTier }
   | { readonly type: 'bank' }
+  | { readonly type: 'log' }
   | { readonly type: 'player'; readonly playerId: string }
   | { readonly type: 'menu' }
   | null;
 
-type BoardPanel = 'board' | 'log';
 type ForcedSheet = 'discard';
 
 interface PlayerReceiveAnimation {
@@ -63,9 +63,14 @@ interface ReplaySelection {
   readonly entryId: string | null;
 }
 
+interface ReplayStep {
+  readonly afterStateVersion: number;
+  readonly beforeStateVersion: number;
+  readonly id: string;
+}
+
 export interface SplendorGameViewProps
   extends GameRenderProps<SplendorState, SplendorMove, SplendorPlayerView> {
-  readonly initialPanel?: BoardPanel;
   readonly initialSelection?: Selection;
 }
 
@@ -199,18 +204,6 @@ const ReplayPlayIcon = ({ paused }: { readonly paused: boolean }) =>
       <path d="M5 3.8c0-.6.64-.98 1.16-.68l5.62 3.2c.53.3.53 1.06 0 1.36l-5.62 3.2A.78.78 0 0 1 5 10.2V3.8Z" />
     </svg>
   );
-
-const ReplayUndoIcon = () => (
-  <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
-    <path
-      d="M5.25 4.5 2.75 7l2.5 2.5M3 7h5.75a4.25 4.25 0 1 1 0 8.5H7.5"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.4"
-    />
-  </svg>
-);
 
 const scrollFadeClass =
   'pointer-events-none absolute inset-x-0 z-10 h-4';
@@ -519,6 +512,7 @@ const PlayerSummaryRow = ({
   chipTargetRefByColor,
   currentUserId,
   isActivePlayer,
+  isReplayMode,
   isRecentlyUpdated,
   nobleTargetRef,
   player,
@@ -535,6 +529,7 @@ const PlayerSummaryRow = ({
   >;
   readonly currentUserId: string | undefined;
   readonly isActivePlayer: boolean;
+  readonly isReplayMode: boolean;
   readonly isRecentlyUpdated: boolean;
   readonly nobleTargetRef?: (node: HTMLDivElement | null) => void;
   readonly onPress: () => void;
@@ -549,8 +544,8 @@ const PlayerSummaryRow = ({
   readonly tableauTargetRef?: (node: HTMLDivElement | null) => void;
 }) => {
   const isCurrentUser = player.id === currentUserId;
-  const isWaitingOnOpponent = isActivePlayer && !isCurrentUser;
-  const showTurnGlow = isActivePlayer && isCurrentUser;
+  const isWaitingOnOpponent = !isReplayMode && isActivePlayer && !isCurrentUser;
+  const showTurnGlow = !isReplayMode && isActivePlayer && isCurrentUser;
   const totalTableauCards = tokenColorOrder.reduce(
     (sum, color) => sum + player.tableauBonuses[color],
     0,
@@ -568,7 +563,7 @@ const PlayerSummaryRow = ({
       <button
         ref={rowRef}
         className={`relative z-10 w-full overflow-hidden rounded-[1rem] border px-2.5 py-1.5 text-left ${
-          isActivePlayer
+          !isReplayMode && isActivePlayer
             ? 'border-sky-300/35 bg-sky-400/8'
             : 'border-white/8 bg-white/3'
         } ${isRecentlyUpdated ? 'player-row-receive' : ''}`}
@@ -659,7 +654,6 @@ const PlayerSummaryRow = ({
 };
 
 export const SplendorGameView = ({
-  initialPanel = 'board',
   initialSelection = null,
   leaveRoom,
   playerId,
@@ -672,13 +666,13 @@ export const SplendorGameView = ({
   submitMove,
 }: SplendorGameViewProps) => {
   const [selection, setSelection] = useState<Selection>(initialSelection);
-  const [activePanel, setActivePanel] = useState<BoardPanel>(initialPanel);
   const [bankSelection, setBankSelection] = useState<readonly TokenColor[]>([]);
   const [discardSelection, setDiscardSelection] = useState<readonly GemColor[]>([]);
   const [purchaseSelection, setPurchaseSelection] = useState<PaymentSelection>(createEmptyPaymentSelection);
   const [showGameComplete, setShowGameComplete] = useState(state.status === 'finished');
   const [replaySelection, setReplaySelection] = useState<ReplaySelection | null>(null);
   const [isReplayPlaying, setIsReplayPlaying] = useState(false);
+  const [showReplayControls, setShowReplayControls] = useState(false);
   const [dismissedForcedSheet, setDismissedForcedSheet] = useState<ForcedSheet | null>(null);
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const targetNodeRefs = useRef<Partial<Record<string, HTMLElement | null>>>({});
@@ -825,11 +819,14 @@ export const SplendorGameView = ({
   const replayAfterEntry = replaySelection
     ? roomHistoryByVersion.get(replaySelection.afterStateVersion) ?? null
     : null;
+  const isReplayMode = replaySelection !== null;
   const sourceState = replayAfterEntry?.state ?? state;
   const animationFrame = useAnimationRunner<SplendorState, SplendorAnimationObject>({
     canonicalSnapshot: sourceState,
     deriveAnimation: (previousSnapshot, nextSnapshot) =>
-      animateTransition(null, previousSnapshot, nextSnapshot),
+      replaySelection && replaySelection.beforeStateVersion === replaySelection.afterStateVersion
+        ? null
+        : animateTransition(null, previousSnapshot, nextSnapshot),
     initialPresentedSnapshot: replayBeforeEntry?.state ?? null,
     resetKey: replaySelection
       ? `replay:${replaySelection.entryId}:${replaySelection.beforeStateVersion}:${replaySelection.afterStateVersion}`
@@ -874,41 +871,51 @@ export const SplendorGameView = ({
     () => deriveRoomHistoryEntries(normalizedRoomHistory),
     [normalizedRoomHistory],
   );
-  const replayableEntries = useMemo(
+  const replayableEntries = useMemo<readonly ReplayStep[]>(
     () =>
-      activityEntries
-        .filter(
-          (entry) =>
-            roomHistoryByVersion.has(entry.beforeStateVersion) &&
-            roomHistoryByVersion.has(entry.afterStateVersion),
-        )
-        .sort((left, right) => left.afterStateVersion - right.afterStateVersion),
-    [activityEntries, roomHistoryByVersion],
+      normalizedRoomHistory.slice(1).map((nextEntry, index) => {
+        const previousEntry = normalizedRoomHistory[index]!;
+
+        return {
+          afterStateVersion: nextEntry.stateVersion,
+          beforeStateVersion: previousEntry.stateVersion,
+          id: `replay-${nextEntry.stateVersion}`,
+        };
+      }),
+    [normalizedRoomHistory],
   );
-  const replayEntry = replaySelection
-    ? replaySelection.entryId === null
-      ? null
-      : replayableEntries.find((entry) => entry.id === replaySelection.entryId) ?? null
-    : null;
+  const replayIndex = replaySelection
+    ? replayableEntries.findIndex((entry) => entry.afterStateVersion === replaySelection.afterStateVersion)
+    : -1;
+  const firstReplayStateVersion = normalizedRoomHistory[0]?.stateVersion ?? null;
   const isInitialReplayState =
     replaySelection !== null &&
-    replaySelection.entryId === null &&
-    replaySelection.beforeStateVersion === replaySelection.afterStateVersion;
-  const replayIndex = replayEntry
-    ? replayableEntries.findIndex((entry) => entry.id === replayEntry.id)
-    : -1;
-  const previousReplayEntry = isInitialReplayState
-    ? null
-    : replayIndex > 0
-      ? replayableEntries[replayIndex - 1] ?? null
-      : null;
-  const nextReplayEntry = isInitialReplayState
-    ? replayableEntries[0] ?? null
-    : replayIndex >= 0 && replayIndex < replayableEntries.length - 1
+    firstReplayStateVersion !== null &&
+    replaySelection.afterStateVersion === firstReplayStateVersion;
+  const canStepBackward = replaySelection !== null && !isInitialReplayState;
+  const previousReplayEntry =
+    replayIndex > 0 ? replayableEntries[replayIndex - 1] ?? null : null;
+  const nextReplayEntry =
+    isInitialReplayState
+      ? replayableEntries[0] ?? null
+      : replayIndex >= 0 && replayIndex < replayableEntries.length - 1
       ? replayableEntries[replayIndex + 1] ?? null
       : null;
   const latestReplayEntry =
     replayableEntries.length > 0 ? replayableEntries[replayableEntries.length - 1] ?? null : null;
+  const currentReplayStateVersion =
+    roomStateVersion !== undefined && roomHistoryByVersion.has(roomStateVersion)
+      ? roomStateVersion
+      : latestReplayEntry?.afterStateVersion ?? null;
+  const hasReplayHistory =
+    currentReplayStateVersion !== null &&
+    normalizedRoomHistory.length > 1 &&
+    normalizedRoomHistory[0]?.stateVersion !== currentReplayStateVersion;
+  const isLatestReplayState =
+    replaySelection !== null &&
+    currentReplayStateVersion !== null &&
+    replaySelection.afterStateVersion === currentReplayStateVersion;
+  const canStepForward = replaySelection !== null && !isLatestReplayState && nextReplayEntry !== null;
   const liveAdvancedWhileReplaying =
     replaySelection !== null &&
     roomStateVersion !== undefined &&
@@ -938,7 +945,7 @@ export const SplendorGameView = ({
   const waitingForDiscard = displayedState.turn.kind === 'discard';
   const waitingForNoble = displayedState.turn.kind === 'noble';
   const forcedSheet: ForcedSheet | null =
-    interaction.isCurrentUsersTurn && waitingForDiscard ? 'discard' : null;
+    !isReplayMode && interaction.isCurrentUsersTurn && waitingForDiscard ? 'discard' : null;
   const visibleForcedSheet = forcedSheet !== null && dismissedForcedSheet !== forcedSheet ? forcedSheet : null;
   const actionSheetOpen = visibleForcedSheet !== null || selection !== null;
   const canSubmitRealtimeMoves = replaySelection === null;
@@ -952,15 +959,46 @@ export const SplendorGameView = ({
     setPurchaseSelection(createEmptyPaymentSelection());
   };
 
-  const startReplay = (entry: RoomActivityEntry) => {
+  const startReplay = (entry: ReplayStep) => {
     setSelection(null);
-    setActivePanel('log');
     setIsReplayPlaying(false);
     setReplaySelection({
       afterStateVersion: entry.afterStateVersion,
       beforeStateVersion: entry.beforeStateVersion,
       entryId: entry.id,
     });
+  };
+
+  const playReplayEntry = (entry: ReplayStep) => {
+    const fromStateVersion =
+      replaySelection?.afterStateVersion ?? currentReplayStateVersion ?? entry.beforeStateVersion;
+
+    setSelection(null);
+    setIsReplayPlaying(false);
+    setReplaySelection({
+      afterStateVersion: entry.afterStateVersion,
+      beforeStateVersion: fromStateVersion,
+      entryId: entry.id,
+    });
+  };
+
+  const openReplayControls = () => {
+    if (replaySelection) {
+      setShowReplayControls(true);
+      return;
+    }
+
+    if (currentReplayStateVersion === null) {
+      return;
+    }
+
+    setIsReplayPlaying(false);
+    setReplaySelection({
+      afterStateVersion: currentReplayStateVersion,
+      beforeStateVersion: currentReplayStateVersion,
+      entryId: null,
+    });
+    setShowReplayControls(true);
   };
 
   const selectInitialReplayState = () => {
@@ -971,7 +1009,6 @@ export const SplendorGameView = ({
     }
 
     setSelection(null);
-    setActivePanel('log');
     setIsReplayPlaying(false);
     setReplaySelection({
       afterStateVersion: firstHistoryEntry.stateVersion,
@@ -982,6 +1019,7 @@ export const SplendorGameView = ({
 
   const stopReplay = () => {
     setIsReplayPlaying(false);
+    setShowReplayControls(false);
     setReplaySelection(null);
   };
 
@@ -1021,7 +1059,7 @@ export const SplendorGameView = ({
     }
 
     const timeoutId = window.setTimeout(() => {
-      startReplay(nextReplayEntry);
+      playReplayEntry(nextReplayEntry);
     }, 900);
 
     return () => window.clearTimeout(timeoutId);
@@ -1063,7 +1101,7 @@ export const SplendorGameView = ({
       scrollNode.removeEventListener('scroll', updateFadeState);
       window.removeEventListener('resize', updateFadeState);
     };
-  }, [activePanel, displayedState, showGameComplete]);
+  }, [displayedState, showGameComplete]);
 
   const toggleBankColor = (color: TokenColor) => {
     setBankSelection((current) => {
@@ -1525,6 +1563,13 @@ export const SplendorGameView = ({
           {roomSummary}
         </div>
       ) : null}
+      <button
+        className={subtleButtonClass}
+        onClick={() => setSelection({ type: 'log' })}
+        type="button"
+      >
+        View log
+      </button>
       {leaveRoom ? (
         <button className={subtleButtonClass} onClick={leaveRoom} type="button">
           Back to lobby
@@ -1694,6 +1739,14 @@ export const SplendorGameView = ({
       };
     }
 
+    if (selection?.type === 'log') {
+      return {
+        eyebrow: 'Room',
+        title: 'Log',
+        content: renderLogPanel(),
+      };
+    }
+
     if (selection?.type === 'market-card' && selectedVisibleCard) {
       return {
         eyebrow: 'Market',
@@ -1728,10 +1781,6 @@ export const SplendorGameView = ({
   };
 
   const actionSheetContent = renderActionSheetContent();
-  const panelOptions = [
-    { label: 'Board', value: 'board' },
-    { label: 'Log', value: 'log' },
-  ] as const;
   const renderCardAnimationObject = (
     object: Extract<SplendorAnimationObject, { readonly kind: 'card' }>,
   ) =>
@@ -1746,13 +1795,9 @@ export const SplendorGameView = ({
       className="h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.16),_transparent_22%),radial-gradient(circle_at_bottom_right,_rgba(56,189,248,0.14),_transparent_28%),linear-gradient(180deg,_#1e140f,_#090d15)] text-stone-100"
       style={splendorAnimationCssVars as CSSProperties}
     >
-      <div className="mx-auto flex h-full max-w-md flex-col gap-2 px-2 py-2 pb-18">
+      <div className="mx-auto flex h-full max-w-md flex-col gap-2 px-2 py-2">
         <header
-          className={`sticky top-0 z-30 rounded-[1rem] border px-2.5 py-2 shadow-[0_14px_36px_rgba(0,0,0,0.28)] backdrop-blur ${
-            interaction.isCurrentUsersTurn && displayedState.status !== 'finished'
-              ? 'border-sky-300/25 bg-[linear-gradient(180deg,rgba(8,47,73,0.9),rgba(12,24,36,0.92))]'
-              : 'border-white/10 bg-stone-950/90'
-          }`}
+          className="sticky top-0 z-30 rounded-[1rem] border border-white/10 bg-stone-950/90 px-2.5 py-2 shadow-[0_14px_36px_rgba(0,0,0,0.28)] backdrop-blur"
         >
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
@@ -1788,16 +1833,14 @@ export const SplendorGameView = ({
                 Skip noble
               </button>
             ) : null}
-            {replaySelection === null && latestReplayEntry ? (
-              <button
-                aria-label="Enter replay mode"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-sky-200/18 bg-sky-950/26 text-sky-50 transition hover:bg-sky-950/40"
-                onClick={() => startReplay(latestReplayEntry)}
+            <button
+                disabled={!hasReplayHistory}
+                className="rounded-full border border-sky-300/18 bg-sky-300/8 px-2.5 py-1 text-[11px] font-medium text-sky-50 transition hover:border-sky-300/30 hover:bg-sky-300/14 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-sky-300/18 disabled:hover:bg-sky-300/8"
+                onClick={replaySelection ? stopReplay : openReplayControls}
                 type="button"
               >
-                <ReplayUndoIcon />
+                {replaySelection ? 'Back' : 'Replay'}
               </button>
-            ) : null}
             <button
               className="rounded-full border border-white/12 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-stone-100 transition hover:border-white/20 hover:bg-white/8"
               onClick={() => setSelection({ type: 'menu' })}
@@ -1815,13 +1858,12 @@ export const SplendorGameView = ({
               </button>
             ) : null}
           </div>
-          {replaySelection ? (
+          {replaySelection && showReplayControls ? (
             <div className="mt-2 flex items-center gap-2 rounded-[0.9rem] border border-sky-300/18 bg-sky-300/8 px-2 py-2">
               <div className="min-w-0 flex-1">
                 <p className="text-[9px] uppercase tracking-[0.16em] text-sky-200/80">Replay</p>
                 <p className="truncate text-[11px] text-sky-50">
                   {isInitialReplayState ? 'Initial board' : `${replayIndex + 1} / ${replayableEntries.length}`}
-                  {liveAdvancedWhileReplaying && roomStateVersion !== undefined ? ` • Live v${roomStateVersion}` : ''}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -1833,35 +1875,64 @@ export const SplendorGameView = ({
                   <ReplayDoubleChevron direction="left" />
                 </ReplayIconButton>
                 <ReplayIconButton
-                  disabled={!previousReplayEntry}
+                  disabled={!canStepBackward}
                   label="Previous step"
                   onClick={() => {
+                    if (!canStepBackward) {
+                      return;
+                    }
+
+                    setIsReplayPlaying(false);
+
+                    if (replayIndex === 0) {
+                      selectInitialReplayState();
+                      return;
+                    }
+
                     if (previousReplayEntry) {
-                      startReplay(previousReplayEntry);
+                      setReplaySelection({
+                        afterStateVersion: previousReplayEntry.afterStateVersion,
+                        beforeStateVersion: previousReplayEntry.afterStateVersion,
+                        entryId: null,
+                      });
                     }
                   }}
                 >
                   <ReplayChevron direction="left" />
                 </ReplayIconButton>
                 <ReplayIconButton
-                  disabled={replayableEntries.length === 0}
+                  disabled={!canStepForward}
                   label={isReplayPlaying ? 'Pause replay' : 'Play replay'}
-                  onClick={() => setIsReplayPlaying((current) => !current)}
+                  onClick={() => {
+                    if (!canStepForward) {
+                      return;
+                    }
+
+                    setIsReplayPlaying((current) => !current);
+                  }}
                 >
                   <ReplayPlayIcon paused={isReplayPlaying} />
                 </ReplayIconButton>
                 <ReplayIconButton
-                  disabled={!nextReplayEntry}
+                  disabled={!canStepForward}
                   label="Next step"
                   onClick={() => {
-                    if (nextReplayEntry) {
-                      startReplay(nextReplayEntry);
+                    if (canStepForward && nextReplayEntry) {
+                      playReplayEntry(nextReplayEntry);
                     }
                   }}
                 >
                   <ReplayChevron direction="right" />
                 </ReplayIconButton>
-                <ReplayIconButton label="Jump to live" onClick={stopReplay}>
+                <ReplayIconButton
+                  disabled={isLatestReplayState}
+                  label="Jump to live"
+                  onClick={() => {
+                    if (!isLatestReplayState) {
+                      stopReplay();
+                    }
+                  }}
+                >
                   <ReplayDoubleChevron direction="right" />
                 </ReplayIconButton>
               </div>
@@ -1886,6 +1957,7 @@ export const SplendorGameView = ({
                         ) as Partial<Record<GemColor, (node: HTMLSpanElement | null) => void>>}
                         currentUserId={playerId ?? undefined}
                         isActivePlayer={activePlayer?.identity.id === player.id}
+                        isReplayMode={isReplayMode}
                         isRecentlyUpdated={animationState.changedPlayerIds.includes(player.id)}
                         key={`summary-${player.id}`}
                         nobleTargetRef={registerTarget(splendorAnimationTargets.playerNobles(player.id))}
@@ -1925,33 +1997,14 @@ export const SplendorGameView = ({
                 className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
                 ref={mainScrollRef}
               >
-                <div className={activePanel === 'board' ? 'flex min-h-full flex-col' : 'space-y-2'}>
-                {activePanel === 'board' ? renderBoardPanel() : renderLogPanel()}
+                <div className="flex min-h-full flex-col">
+                  {renderBoardPanel()}
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
-
-      <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 bottom-0 z-10 h-16">
-        <div className="h-full w-full bg-[linear-gradient(180deg,_rgba(9,13,21,0)_0%,_rgba(9,13,21,0.58)_45%,_rgba(9,13,21,0.9)_100%)]" />
-      </div>
-
-      {!showGameComplete || displayedState.status !== 'finished' ? (
-        <nav aria-label="Splendor panels" className="fixed inset-x-0 bottom-0 z-20">
-          <div className="mx-auto w-full max-w-md">
-            <div className="border-t border-white/10 bg-slate-950/90 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">
-              <SegmentedControl
-                ariaLabel="Splendor panels"
-                onChange={setActivePanel}
-                options={panelOptions}
-                value={activePanel}
-              />
-            </div>
-          </div>
-        </nav>
-      ) : null}
 
       {displayedChipTranslations.map((translation) => (
         <span
