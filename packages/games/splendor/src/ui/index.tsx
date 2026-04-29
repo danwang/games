@@ -1381,7 +1381,7 @@ export const SplendorGameView = ({
 
             return (
               <button
-                className="relative rounded-full px-1.5 py-1"
+                className="relative rounded-full px-1.5 py-1 disabled:opacity-40"
                 disabled={displayedState.bank[color] === 0}
                 key={`bank-${color}`}
                 onClick={() => toggleBankColor(color)}

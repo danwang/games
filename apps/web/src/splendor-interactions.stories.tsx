@@ -27,6 +27,11 @@ const nobleChoiceState = withNobleChoice();
 const getStoryPerspective = (value: unknown): SplendorStoryPerspective =>
   value === 'other' ? 'other' : 'active';
 
+const emptyChipsState = {
+  ...baseSplendorState,
+  bank: { ...baseSplendorState.bank, white: 0, red: 0 },
+};
+
 const goldShortageCard =
   [...baseSplendorState.market.tier1, ...baseSplendorState.market.tier2, ...baseSplendorState.market.tier3].find(
     (card) => tokenColorOrder.reduce((sum, color) => sum + card.cost[color], 0) >= 3,
@@ -169,6 +174,22 @@ export const BankSheet: Story = {
     ),
   args: {
     initialSelection: { type: 'bank' },
+  },
+};
+
+export const BankSheetEmptyStacks: Story = {
+  render: (_args, context) =>
+    renderSplendorStory(
+      emptyChipsState,
+      { type: 'bank' },
+      2,
+      getStoryPerspective(context.globals.splendorPerspective),
+      createPrimaryRoomHistoryThrough(0),
+    ),
+  args: {
+    initialSelection: { type: 'bank' },
+    roomStateVersion: 2,
+    state: emptyChipsState,
   },
 };
 
