@@ -1374,8 +1374,8 @@ export const SplendorGameView = ({
         Tap bank tokens to build your pick. Tap the same color twice to take a pair when allowed.
       </p>
       <section className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Selected {bankSelection.length}/3</p>
-        <div className="flex flex-wrap gap-2.5">
+        <p className="text-center text-xs uppercase tracking-[0.24em] text-stone-500">Selected {bankSelection.length}/3</p>
+        <div className="flex flex-wrap justify-center gap-2.5">
           {tokenColorOrder.map((color) => {
             const selectedCount = countTokenSelection(bankSelection)[color];
 
@@ -1398,14 +1398,16 @@ export const SplendorGameView = ({
           })}
         </div>
       </section>
-      <button
-        className={primaryButtonClass}
-        disabled={!selectedBankMove || !canSubmitRealtimeMoves}
-        onClick={() => selectedBankMove && submitAndReset(selectedBankMove)}
-        type="button"
-      >
-        Take {bankSelection.length}
-      </button>
+      <div className="flex justify-center">
+        <button
+          className={primaryButtonClass}
+          disabled={!selectedBankMove || !canSubmitRealtimeMoves}
+          onClick={() => selectedBankMove && submitAndReset(selectedBankMove)}
+          type="button"
+        >
+          Take {bankSelection.length}
+        </button>
+      </div>
     </div>
   );
 
