@@ -475,6 +475,23 @@ export const reduceGame = (state: GameState, move: Move): ReduceGameResult => {
       );
     }
 
+    case 'forfeit': {
+      return {
+        ok: true,
+        state: {
+          ...state,
+          status: 'finished',
+          result: {
+            winners: state.players
+              .filter((_, i) => i !== activePlayerIndex)
+              .map((p) => p.identity.id),
+            winningScore: 0,
+            tiedOnCards: false,
+          },
+        },
+      };
+    }
+
     case 'claim-noble':
     case 'skip-noble':
     case 'discard-tokens':

@@ -160,14 +160,23 @@ const isDrawSource = (value: unknown): value is Move['drawSource'] => {
   return value.type === 'discard' && hasOwn(value, 'color') && isExpeditionColor(value.color);
 };
 
-const isMove = (value: unknown): value is Move =>
-  isRecord(value) &&
-  hasOwn(value, 'type') &&
-  (value.type === 'play' || value.type === 'discard') &&
-  hasOwn(value, 'cardId') &&
-  typeof value.cardId === 'string' &&
-  hasOwn(value, 'drawSource') &&
-  isDrawSource(value.drawSource);
+const isMove = (value: unknown): value is Move => {
+  if (!isRecord(value) || !hasOwn(value, 'type') || typeof value.type !== 'string') {
+    return false;
+  }
+
+  if (value.type === 'forfeit') {
+    return true;
+  }
+
+  return (
+    (value.type === 'play' || value.type === 'discard') &&
+    hasOwn(value, 'cardId') &&
+    typeof value.cardId === 'string' &&
+    hasOwn(value, 'drawSource') &&
+    isDrawSource(value.drawSource)
+  );
+};
 
 const normalizeConfig = (config: unknown): GameConfig => {
   if (!config || typeof config !== 'object') {

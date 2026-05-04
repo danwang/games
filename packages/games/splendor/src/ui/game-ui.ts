@@ -207,6 +207,8 @@ export const moveLabel = (move: Move): string => {
       return 'Skip noble';
     case 'discard-tokens':
       return `Discard ${summarizeDiscard(move.tokens)}`;
+    case 'forfeit':
+      return 'Forfeit';
   }
 };
 
