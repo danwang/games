@@ -1218,7 +1218,6 @@ export const SplendorGameView = ({
                   .map((color) => (
                     <GemPip color={color} count={effectiveCost[color]} key={`effective-${card.id}-${color}`} size="sm" />
                   ))}
-                {autoGoldCount > 0 ? <GemPip color="gold" count={autoGoldCount} key={`effective-${card.id}-gold`} size="sm" /> : null}
                 {totalEffectiveCost === 0 ? <span className="text-sm text-stone-400">Free with discounts</span> : null}
               </div>
               {autoGoldCount > 0 ? (
