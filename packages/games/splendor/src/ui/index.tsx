@@ -671,6 +671,7 @@ export const SplendorGameView = ({
 }: SplendorGameViewProps) => {
   const [selection, setSelection] = useState<Selection>(initialSelection);
   const [bankSelection, setBankSelection] = useState<readonly TokenColor[]>([]);
+  const [bankConfirmPending, setBankConfirmPending] = useState(false);
   const [discardSelection, setDiscardSelection] = useState<readonly GemColor[]>([]);
   const [purchaseSelection, setPurchaseSelection] = useState<PaymentSelection>(createEmptyPaymentSelection);
   const [showGameComplete, setShowGameComplete] = useState(state.status === 'finished');
@@ -959,6 +960,7 @@ export const SplendorGameView = ({
     setSelection(null);
     setDismissedForcedSheet(null);
     setBankSelection([]);
+    setBankConfirmPending(false);
     setDiscardSelection([]);
     setPurchaseSelection(createEmptyPaymentSelection());
   };
@@ -1081,6 +1083,12 @@ export const SplendorGameView = ({
   }, [displayedState.status, replaySelection]);
 
   useEffect(() => {
+    if (selection?.type !== 'bank') {
+      setBankConfirmPending(false);
+    }
+  }, [selection]);
+
+  useEffect(() => {
     const scrollNode = mainScrollRef.current;
 
     if (!scrollNode) {
@@ -1108,6 +1116,7 @@ export const SplendorGameView = ({
   }, [displayedState, showGameComplete]);
 
   const toggleBankColor = (color: TokenColor) => {
+    setBankConfirmPending(false);
     setBankSelection((current) => {
       const selectedCount = countTokenSelection(current)[color];
       const pairMove = interaction.pairMovesByColor[color];
@@ -1370,13 +1379,47 @@ export const SplendorGameView = ({
 
   const renderBankSheet = () => {
     const availableDistinctColors = tokenColorOrder.filter((c) => displayedState.bank[c] > 0);
-    const maxTakeableDistinct = Math.min(availableDistinctColors.length, 3);
+    const currentChipCount = currentPlayer
+      ? gemOrder.reduce((sum, color) => sum + currentPlayer.tokens[color], 0)
+      : 0;
+    const chipHeadroom = 10 - currentChipCount;
+    const effectiveMaxDistinct =
+      chipHeadroom > 0 && chipHeadroom < 3
+        ? Math.min(availableDistinctColors.length, chipHeadroom)
+        : Math.min(availableDistinctColors.length, 3);
     const isPairSelected = bankSelection.length === 2 && bankSelection[0] === bankSelection[1];
     const isBelowMax =
       selectedBankMove !== null &&
       !isPairSelected &&
       bankSelection.length > 0 &&
-      bankSelection.length < maxTakeableDistinct;
+      bankSelection.length < effectiveMaxDistinct;
+
+    if (bankConfirmPending && selectedBankMove) {
+      return (
+        <div className="space-y-5">
+          <p className="text-sm leading-6 text-stone-300">
+            You&apos;re taking {bankSelection.length} chip{bankSelection.length !== 1 ? 's' : ''} but could take up to {effectiveMaxDistinct}. Go back to add more, or confirm.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              className={subtleButtonClass}
+              onClick={() => setBankConfirmPending(false)}
+              type="button"
+            >
+              Add more
+            </button>
+            <button
+              className={primaryButtonClass}
+              disabled={!canSubmitRealtimeMoves}
+              onClick={() => submitAndReset(selectedBankMove)}
+              type="button"
+            >
+              Take {bankSelection.length}
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-5">
@@ -1385,7 +1428,7 @@ export const SplendorGameView = ({
         </p>
         <section className="space-y-3">
           <p className="text-center text-xs uppercase tracking-[0.24em] text-stone-500">
-            Selected {bankSelection.length}/{isPairSelected ? 2 : maxTakeableDistinct}
+            Selected {bankSelection.length}/{isPairSelected ? 2 : effectiveMaxDistinct}
           </p>
           <div className="flex flex-wrap justify-center gap-2.5">
             {tokenColorOrder.map((color) => {
@@ -1410,19 +1453,21 @@ export const SplendorGameView = ({
             })}
           </div>
         </section>
-        {isBelowMax ? (
-          <p className="rounded-[0.8rem] border border-amber-300/20 bg-amber-300/8 px-3 py-2 text-center text-sm text-amber-200/90">
-            You can take {maxTakeableDistinct - bankSelection.length} more chip{maxTakeableDistinct - bankSelection.length !== 1 ? 's' : ''} — tap to add more.
-          </p>
-        ) : null}
         <div className="flex justify-center">
           <button
             className={primaryButtonClass}
             disabled={!selectedBankMove || !canSubmitRealtimeMoves}
-            onClick={() => selectedBankMove && submitAndReset(selectedBankMove)}
+            onClick={() => {
+              if (!selectedBankMove) return;
+              if (isBelowMax) {
+                setBankConfirmPending(true);
+              } else {
+                submitAndReset(selectedBankMove);
+              }
+            }}
             type="button"
           >
-            {isBelowMax ? `Take ${bankSelection.length} (not max)` : `Take ${bankSelection.length}`}
+            Take {bankSelection.length}
           </button>
         </div>
       </div>
