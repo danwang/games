@@ -138,5 +138,6 @@ export const listLegalMoves = (state: GameState): readonly Move[] => {
     ...reserveMoves,
     ...marketPurchases,
     ...reservedPurchases,
+    { type: 'forfeit' as const },
   ];
 };

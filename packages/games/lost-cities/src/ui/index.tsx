@@ -492,6 +492,7 @@ export const LostCitiesGameView = ({
   submitMove,
 }: LostCitiesGameViewProps) => {
   const [selectedCardId, setSelectedCardId] = useState<LostCitiesSelection>(initialSelection);
+  const [forfeitConfirm, setForfeitConfirm] = useState(false);
   const currentPlayerIndex =
     playerId === null ? -1 : playerView.state.players.findIndex((player) => player.identity.id === playerId);
   const viewerBottomIndex: 0 | 1 = currentPlayerIndex === 1 ? 1 : 0;
@@ -532,6 +533,15 @@ export const LostCitiesGameView = ({
             </div>
             <div className="flex shrink-0 items-start gap-1">
               <DeckGlyph count={playerView.state.drawCount} />
+              {currentUserTurn && playerView.state.status === 'in_progress' ? (
+                <button
+                  className={`${secondaryButtonClass} border-rose-500/30 text-rose-300 hover:border-rose-500/50`}
+                  onClick={() => setForfeitConfirm(true)}
+                  type="button"
+                >
+                  Forfeit
+                </button>
+              ) : null}
               {leaveRoom ? (
                 <button className={secondaryButtonClass} onClick={leaveRoom} type="button">
                   Leave
@@ -630,6 +640,37 @@ export const LostCitiesGameView = ({
           </div>
         </section>
       </div>
+
+      <LocalActionSheet
+        onClose={() => setForfeitConfirm(false)}
+        open={forfeitConfirm}
+        title="Forfeit game"
+      >
+        <div className="grid gap-4">
+          <p className="text-sm leading-6 text-stone-300">
+            This will immediately end the game and give your opponent the win.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              className={secondaryButtonClass}
+              onClick={() => setForfeitConfirm(false)}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-full bg-rose-500/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-rose-400"
+              onClick={() => {
+                submitMove({ type: 'forfeit' });
+                setForfeitConfirm(false);
+              }}
+              type="button"
+            >
+              Forfeit
+            </button>
+          </div>
+        </div>
+      </LocalActionSheet>
 
       <LocalActionSheet
         onClose={() => setSelectedCardId(null)}

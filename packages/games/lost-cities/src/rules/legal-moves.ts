@@ -28,24 +28,27 @@ export const listLegalMoves = (state: GameState): readonly Move[] => {
     return [];
   }
 
-  return player.hand.flatMap((card) => {
-    const drawAfterPlay = listAvailableDrawSources(state, null);
-    const drawAfterDiscard = listAvailableDrawSources(state, card.color);
-    const expedition = player.expeditions[card.color];
+  return [
+    { type: 'forfeit' as const },
+    ...player.hand.flatMap((card) => {
+      const drawAfterPlay = listAvailableDrawSources(state, null);
+      const drawAfterDiscard = listAvailableDrawSources(state, card.color);
+      const expedition = player.expeditions[card.color];
 
-    return [
-      ...(isPlayableOnExpedition(expedition, card)
-        ? drawAfterPlay.map((drawSource) => ({
-            type: 'play' as const,
-            cardId: card.id,
-            drawSource,
-          }))
-        : []),
-      ...drawAfterDiscard.map((drawSource) => ({
-        type: 'discard' as const,
-        cardId: card.id,
-        drawSource,
-      })),
-    ];
-  });
+      return [
+        ...(isPlayableOnExpedition(expedition, card)
+          ? drawAfterPlay.map((drawSource) => ({
+              type: 'play' as const,
+              cardId: card.id,
+              drawSource,
+            }))
+          : []),
+        ...drawAfterDiscard.map((drawSource) => ({
+          type: 'discard' as const,
+          cardId: card.id,
+          drawSource,
+        })),
+      ];
+    }),
+  ];
 };

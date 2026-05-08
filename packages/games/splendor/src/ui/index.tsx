@@ -41,6 +41,7 @@ type Selection =
   | { readonly type: 'log' }
   | { readonly type: 'player'; readonly playerId: string }
   | { readonly type: 'menu' }
+  | { readonly type: 'forfeit-confirm' }
   | null;
 
 type ForcedSheet = 'discard';
@@ -670,6 +671,7 @@ export const SplendorGameView = ({
 }: SplendorGameViewProps) => {
   const [selection, setSelection] = useState<Selection>(initialSelection);
   const [bankSelection, setBankSelection] = useState<readonly TokenColor[]>([]);
+  const [bankConfirmPending, setBankConfirmPending] = useState(false);
   const [discardSelection, setDiscardSelection] = useState<readonly GemColor[]>([]);
   const [purchaseSelection, setPurchaseSelection] = useState<PaymentSelection>(createEmptyPaymentSelection);
   const [showGameComplete, setShowGameComplete] = useState(state.status === 'finished');
@@ -958,6 +960,7 @@ export const SplendorGameView = ({
     setSelection(null);
     setDismissedForcedSheet(null);
     setBankSelection([]);
+    setBankConfirmPending(false);
     setDiscardSelection([]);
     setPurchaseSelection(createEmptyPaymentSelection());
   };
@@ -1080,6 +1083,12 @@ export const SplendorGameView = ({
   }, [displayedState.status, replaySelection]);
 
   useEffect(() => {
+    if (selection?.type !== 'bank') {
+      setBankConfirmPending(false);
+    }
+  }, [selection]);
+
+  useEffect(() => {
     const scrollNode = mainScrollRef.current;
 
     if (!scrollNode) {
@@ -1107,6 +1116,7 @@ export const SplendorGameView = ({
   }, [displayedState, showGameComplete]);
 
   const toggleBankColor = (color: TokenColor) => {
+    setBankConfirmPending(false);
     setBankSelection((current) => {
       const selectedCount = countTokenSelection(current)[color];
       const pairMove = interaction.pairMovesByColor[color];
@@ -1217,7 +1227,6 @@ export const SplendorGameView = ({
                   .map((color) => (
                     <GemPip color={color} count={effectiveCost[color]} key={`effective-${card.id}-${color}`} size="sm" />
                   ))}
-                {autoGoldCount > 0 ? <GemPip color="gold" count={autoGoldCount} key={`effective-${card.id}-gold`} size="sm" /> : null}
                 {totalEffectiveCost === 0 ? <span className="text-sm text-stone-400">Free with discounts</span> : null}
               </div>
               {autoGoldCount > 0 ? (
@@ -1368,48 +1377,102 @@ export const SplendorGameView = ({
     );
   };
 
-  const renderBankSheet = () => (
-    <div className="space-y-5">
-      <p className="text-sm leading-6 text-stone-300">
-        Tap bank tokens to build your pick. Tap the same color twice to take a pair when allowed.
-      </p>
-      <section className="space-y-3">
-        <p className="text-center text-xs uppercase tracking-[0.24em] text-stone-500">Selected {bankSelection.length}/3</p>
-        <div className="flex flex-wrap justify-center gap-2.5">
-          {tokenColorOrder.map((color) => {
-            const selectedCount = countTokenSelection(bankSelection)[color];
+  const renderBankSheet = () => {
+    const availableDistinctColors = tokenColorOrder.filter((c) => displayedState.bank[c] > 0);
+    const currentChipCount = currentPlayer
+      ? gemOrder.reduce((sum, color) => sum + currentPlayer.tokens[color], 0)
+      : 0;
+    const chipHeadroom = 10 - currentChipCount;
+    const effectiveMaxDistinct =
+      chipHeadroom > 0 && chipHeadroom < 3
+        ? Math.min(availableDistinctColors.length, chipHeadroom)
+        : Math.min(availableDistinctColors.length, 3);
+    const isPairSelected = bankSelection.length === 2 && bankSelection[0] === bankSelection[1];
+    const isBelowMax =
+      selectedBankMove !== null &&
+      !isPairSelected &&
+      bankSelection.length > 0 &&
+      bankSelection.length < effectiveMaxDistinct;
 
-            return (
-              <button
-                className="relative rounded-full px-1.5 py-1 disabled:opacity-40"
-                disabled={displayedState.bank[color] === 0}
-                key={`bank-${color}`}
-                onClick={() => toggleBankColor(color)}
-                type="button"
-              >
-                <GemPip color={color} count={displayedState.bank[color]} />
-                {selectedCount > 0 ? (
-                  <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-stone-950 px-1 text-[10px] font-semibold text-stone-100 ring-1 ring-white/10">
-                    {selectedCount}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
+    if (bankConfirmPending && selectedBankMove) {
+      return (
+        <div className="space-y-5">
+          <p className="text-sm leading-6 text-stone-300">
+            You&apos;re taking {bankSelection.length} chip{bankSelection.length !== 1 ? 's' : ''} but could take up to {effectiveMaxDistinct}. Go back to add more, or confirm.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              className={subtleButtonClass}
+              onClick={() => setBankConfirmPending(false)}
+              type="button"
+            >
+              Add more
+            </button>
+            <button
+              className={primaryButtonClass}
+              disabled={!canSubmitRealtimeMoves}
+              onClick={() => submitAndReset(selectedBankMove)}
+              type="button"
+            >
+              Take {bankSelection.length}
+            </button>
+          </div>
         </div>
-      </section>
-      <div className="flex justify-center">
-        <button
-          className={primaryButtonClass}
-          disabled={!selectedBankMove || !canSubmitRealtimeMoves}
-          onClick={() => selectedBankMove && submitAndReset(selectedBankMove)}
-          type="button"
-        >
-          Take {bankSelection.length}
-        </button>
+      );
+    }
+
+    return (
+      <div className="space-y-5">
+        <p className="text-sm leading-6 text-stone-300">
+          Tap bank tokens to build your pick. Tap the same color twice to take a pair when allowed.
+        </p>
+        <section className="space-y-3">
+          <p className="text-center text-xs uppercase tracking-[0.24em] text-stone-500">
+            Selected {bankSelection.length}/{isPairSelected ? 2 : effectiveMaxDistinct}
+          </p>
+          <div className="flex flex-wrap justify-center gap-2.5">
+            {tokenColorOrder.map((color) => {
+              const selectedCount = countTokenSelection(bankSelection)[color];
+
+              return (
+                <button
+                  className="relative rounded-full px-1.5 py-1 disabled:opacity-40"
+                  disabled={displayedState.bank[color] === 0}
+                  key={`bank-${color}`}
+                  onClick={() => toggleBankColor(color)}
+                  type="button"
+                >
+                  <GemPip color={color} count={displayedState.bank[color]} />
+                  {selectedCount > 0 ? (
+                    <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-stone-950 px-1 text-[10px] font-semibold text-stone-100 ring-1 ring-white/10">
+                      {selectedCount}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+        <div className="flex justify-center">
+          <button
+            className={primaryButtonClass}
+            disabled={!selectedBankMove || !canSubmitRealtimeMoves}
+            onClick={() => {
+              if (!selectedBankMove) return;
+              if (isBelowMax) {
+                setBankConfirmPending(true);
+              } else {
+                submitAndReset(selectedBankMove);
+              }
+            }}
+            type="button"
+          >
+            Take {bankSelection.length}
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderDiscardSheet = () => {
     const requiredCount = displayedState.turn.kind === 'discard' ? displayedState.turn.requiredCount : 0;
@@ -1580,6 +1643,15 @@ export const SplendorGameView = ({
           Back to lobby
         </button>
       ) : null}
+      {canSubmitRealtimeMoves && interaction.isCurrentUsersTurn && displayedState.turn.kind === 'main-action' ? (
+        <button
+          className="w-full rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm font-medium text-rose-300 transition hover:border-rose-500/50 hover:bg-rose-500/20"
+          onClick={() => setSelection({ type: 'forfeit-confirm' })}
+          type="button"
+        >
+          Forfeit game
+        </button>
+      ) : null}
     </div>
   );
 
@@ -1720,6 +1792,37 @@ export const SplendorGameView = ({
   );
 
   const renderActionSheetContent = () => {
+    if (selection?.type === 'forfeit-confirm') {
+      return {
+        eyebrow: 'Game',
+        title: 'Forfeit game',
+        content: (
+          <div className="space-y-4">
+            <p className="text-sm leading-6 text-stone-300">
+              This will immediately end the game. Your opponent{displayedState.players.length > 2 ? 's' : ''} will be declared the winner.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                className={subtleButtonClass}
+                onClick={() => setSelection({ type: 'menu' })}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded-full bg-rose-500/90 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={!canSubmitRealtimeMoves}
+                onClick={() => submitAndReset({ type: 'forfeit' })}
+                type="button"
+              >
+                Forfeit
+              </button>
+            </div>
+          </div>
+        ),
+      };
+    }
+
     if (visibleForcedSheet === 'discard') {
       return {
         title: 'Discard tokens',

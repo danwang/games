@@ -258,6 +258,8 @@ const isMove = (value: unknown): value is Move => {
       return true;
     case 'discard-tokens':
       return hasOwn(value, 'tokens') && Array.isArray(value.tokens) && value.tokens.every(isGemColor);
+    case 'forfeit':
+      return true;
     default:
       return false;
   }

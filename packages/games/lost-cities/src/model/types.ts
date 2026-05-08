@@ -75,6 +75,9 @@ export type Move =
       readonly type: 'discard';
       readonly cardId: string;
       readonly drawSource: DrawSource;
+    }
+  | {
+      readonly type: 'forfeit';
     };
 
 export interface GameState {

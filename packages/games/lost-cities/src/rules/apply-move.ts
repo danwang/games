@@ -92,6 +92,29 @@ export const reduceGame = (state: GameState, move: Move): ReduceGameResult => {
     return fail('The game is already finished.');
   }
 
+  if (move.type === 'forfeit') {
+    const forfeitingIndex = state.activePlayerIndex;
+    const opponentIndex = forfeitingIndex === 0 ? 1 : 0;
+    const opponent = state.players[opponentIndex];
+
+    if (!opponent) {
+      return fail('Cannot forfeit: opponent not found.');
+    }
+
+    return {
+      ok: true,
+      state: {
+        ...state,
+        status: 'finished',
+        result: {
+          winners: [opponent.identity.id],
+          winningScore: 0,
+          scores: [0, 0],
+        },
+      },
+    };
+  }
+
   const legalMove = listLegalMoves(state).find(
     (candidate) => JSON.stringify(candidate) === JSON.stringify(move),
   );

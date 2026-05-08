@@ -148,6 +148,9 @@ export type Move =
   | {
       readonly type: 'discard-tokens';
       readonly tokens: readonly GemColor[];
+    }
+  | {
+      readonly type: 'forfeit';
     };
 
 export interface ReduceGameSuccess {
