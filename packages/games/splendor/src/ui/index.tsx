@@ -1123,7 +1123,7 @@ export const SplendorGameView = ({
       const availableCount = displayedState.bank[color];
 
       if (selectedCount > 1) {
-        return current;
+        return current.filter((entry) => entry !== color);
       }
 
       if (selectedCount === 1 && current.length === 1 && pairMove) {
